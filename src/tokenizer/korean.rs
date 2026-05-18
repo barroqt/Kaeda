@@ -30,9 +30,6 @@ pub fn tokenize(text: &str) -> anyhow::Result<Vec<Token>> {
             let details = t.details();
             let pos = details.first().unwrap_or(&"UNKNOWN").to_string();
             let lemma = verb_lemma(&surface, &pos);
-            println!("SURFACE ====> {}", &surface);
-            println!("POS ====> {}", &pos);
-            println!("LEMMA ====> {}", &lemma);
             Token {
                 surface,
                 lemma,
@@ -59,5 +56,11 @@ mod tests {
         let tokens = tokenize("먹었어요").unwrap();
         let token = tokens.iter().find(|t| t.pos.starts_with("VV")).unwrap();
         assert_eq!(token.lemma, "먹다");
+    }
+
+    #[test]
+    fn tokenize_empty_string() {
+        let tokens = tokenize("").unwrap();
+        assert!(tokens.is_empty());
     }
 }
