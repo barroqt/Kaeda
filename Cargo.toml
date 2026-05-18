@@ -14,5 +14,5 @@ chrono = "0.4"
 ratatui = "0.30.0"
 crossterm = "0.29.0"
 lindera = "3.0.7"
-lindera-ko-dic = "3.0.7"
+lindera-ko-dic = { version = "3.0.7", features = ["embed-ko-dic"] }
 rusqlite = "0.39.0"
