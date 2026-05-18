@@ -1,0 +1,20 @@
+/target
+guidelines.md
+steps.md
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Rust
+**/*.rs.bk
+
+# Runtime artifacts (created at project root during testing)
+*.db
+wordlist.txt
