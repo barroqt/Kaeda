@@ -25,27 +25,30 @@ pub fn parse_srt(path: &str) -> anyhow::Result<Vec<Subtitle>> {
 
     for block in content.split("\n\n") {
         let block = block.trim();
-
         if block.is_empty() {
             continue;
         }
 
         let mut lines = block.lines();
 
-        let index = lines
-            .next()
-            .and_then(|l| l.parse::<u32>().ok())
-            .ok_or_else(|| anyhow::anyhow!("missing sequence number"))?;
-        let timestamp = lines
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("missing timestamp"))?
-            .to_string();
-        let text = lines.collect::<Vec<_>>().join("\n");
-        let text = strip_html_tags(&text);
+        let Some(index) = lines.next().and_then(|l| l.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Some(timestamp) = lines.next() else {
+            continue;
+        };
+        let text = strip_html_tags(&lines.collect::<Vec<_>>().join("\n"));
+        if text.trim().is_empty() {
+            continue;
+        }
+
+        println!("INDEX ====> {}", index);
+        println!("TIMESTAMP ====> {}", timestamp);
+        println!("TEXT ====> {}", text);
 
         subtitles.push(Subtitle {
             index,
-            timestamp,
+            timestamp: timestamp.to_string(),
             text,
         });
     }
@@ -73,5 +76,19 @@ mod tests {
     fn parse_strips_html_tags() {
         let subtitles = parse_srt("tests/fixtures/sample.srt").unwrap();
         assert_eq!(subtitles[0].text, "안녕하세요 반갑습니다.");
+    }
+
+    #[test]
+    fn parse_skips_malformed_blocks() {
+        let subtitles = parse_srt("tests/fixtures/sample_malformed.srt").unwrap();
+        assert_eq!(subtitles.len(), 2);
+        assert_eq!(subtitles[0].index, 1);
+        assert_eq!(subtitles[1].index, 4);
+    }
+
+    #[test]
+    fn parse_empty_file_returns_empty() {
+        let subtitles = parse_srt("tests/fixtures/empty.srt").unwrap();
+        assert!(subtitles.is_empty());
     }
 }
