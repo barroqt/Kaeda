@@ -1,1 +1,1 @@
-mod srt;
+pub mod srt;
