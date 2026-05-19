@@ -2,6 +2,11 @@ use crate::filter::filter_content_tokens;
 use crate::parser::srt::Subtitle;
 use crate::tokenizer::korean::Token;
 use crate::tokenizer::tokenize;
+use crate::ui::build_layout;
+use crate::ui::candidate_pane::render_candidate_pane;
+use crate::ui::definition_pane::render_definition_pane;
+use crate::ui::source_pane::render_source_pane;
+use ratatui::Frame;
 
 pub struct AppState {
     pub subtitles: Vec<Subtitle>,
@@ -20,6 +25,13 @@ pub enum Pane {
 }
 
 impl AppState {
+    pub fn draw(&self, f: &mut Frame) {
+        let (src, cand, def) = build_layout(f.area());
+        render_source_pane(f, src, self);
+        render_candidate_pane(f, cand, self);
+        render_definition_pane(f, def, None);
+    }
+
     pub fn current_subtitle(&self) -> Option<&Subtitle> {
         self.subtitles.get(self.subtitle_cursor)
     }
@@ -197,5 +209,28 @@ mod tests {
         assert!(matches!(state.active_pane, Pane::Source));
         state.switch_pane();
         assert!(matches!(state.active_pane, Pane::Candidates));
+    }
+
+    #[test]
+    fn app_renders_without_panic() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+
+        let subtitles = vec![
+            Subtitle {
+                index: 1,
+                timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
+                text: "안녕하세요".to_string(),
+            },
+            Subtitle {
+                index: 2,
+                timestamp: "00:00:03,000 --> 00:00:04,000".to_string(),
+                text: "반갑습니다".to_string(),
+            },
+        ];
+        let state = AppState::new(subtitles, "test.srt".to_string());
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| state.draw(f)).unwrap();
     }
 }
