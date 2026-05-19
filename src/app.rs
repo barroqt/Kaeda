@@ -1,3 +1,4 @@
+use crate::dictionary::db::{lookup, DictEntry};
 use crate::filter::filter_content_tokens;
 use crate::parser::srt::Subtitle;
 use crate::tokenizer::korean::Token;
@@ -7,8 +8,14 @@ use crate::ui::candidate_pane::render_candidate_pane;
 use crate::ui::definition_pane::render_definition_pane;
 use crate::ui::render_status_bar;
 use crate::ui::source_pane::render_source_pane;
-use ratatui::crossterm::event::KeyCode;
+use anyhow::Context;
+use ratatui::crossterm::event::{self, Event, KeyCode};
 use ratatui::Frame;
+use rusqlite::Connection;
+use std::time::Duration;
+
+use crate::filter::FilterConfig;
+use crate::store::{add_to_deck, init_store, mark_known, DeckEntry};
 
 #[derive(Debug, PartialEq)]
 pub enum Action {
@@ -27,6 +34,7 @@ pub struct AppState {
     pub active_pane: Pane,
     pub source_file: String,
     pub deck_count: usize,
+    pub current_definition: Option<DictEntry>,
 }
 
 pub enum Pane {
@@ -40,7 +48,7 @@ impl AppState {
         let (src, cand, def, status) = build_layout(f.area());
         render_source_pane(f, src, self);
         render_candidate_pane(f, cand, self);
-        render_definition_pane(f, def, None);
+        render_definition_pane(f, def, self.current_definition.as_ref());
         render_status_bar(f, status, self);
     }
 
@@ -95,6 +103,12 @@ impl AppState {
         self.candidate_cursor = 0;
     }
 
+    pub fn update_definition(&mut self, conn: &Connection) {
+        self.current_definition = self
+            .selected_candidate()
+            .and_then(|t| lookup(conn, &t.lemma).ok().flatten());
+    }
+
     pub fn new(subtitles: Vec<Subtitle>, source_file: String) -> Self {
         let mut state = AppState {
             subtitles,
@@ -104,6 +118,7 @@ impl AppState {
             active_pane: Pane::Candidates,
             source_file,
             deck_count: 0,
+            current_definition: None,
         };
         state.recompute_candidates();
         state
@@ -138,6 +153,78 @@ pub fn handle_key(state: &mut AppState, key: KeyCode) -> Action {
         KeyCode::Char('q') => Action::Quit,
         _ => Action::None,
     }
+}
+
+pub fn run(
+    state: &mut AppState,
+    conn: &Connection,
+    config: &FilterConfig,
+) -> anyhow::Result<()> {
+    init_store(conn).context("failed to init store")?;
+
+    state.update_definition(conn);
+
+    let mut terminal =
+        ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))
+            .context("failed to create terminal")?;
+
+    crossterm::terminal::enable_raw_mode().context("failed to enable raw mode")?;
+
+    let res = loop {
+        terminal.draw(|f| state.draw(f))?;
+
+        if !event::poll(Duration::from_millis(100))? {
+            continue;
+        }
+
+        let action = match event::read()? {
+            Event::Key(ke) => handle_key(state, ke.code),
+            _ => Action::None,
+        };
+
+        match action {
+            Action::None => {}
+            Action::AddToDeck => {
+                if let Some(token) = state.selected_candidate() {
+                    let meaning = state
+                        .current_definition
+                        .as_ref()
+                        .map(|d| d.meaning.clone())
+                        .unwrap_or_default();
+                    let source = state
+                        .current_subtitle()
+                        .map(|s| s.text.clone())
+                        .unwrap_or_default();
+                    let entry = DeckEntry {
+                        lemma: token.lemma.clone(),
+                        surface: token.surface.clone(),
+                        meaning,
+                        source_sentence: source,
+                        source_file: state.source_file.clone(),
+                    };
+                    add_to_deck(conn, &entry)?;
+                    state.deck_count = state.deck_count.saturating_add(1);
+                }
+                state.next_subtitle();
+            }
+            Action::MarkKnown => {
+                if let Some(token) = state.selected_candidate() {
+                    mark_known(conn, &token.lemma)?;
+                }
+                state.next_subtitle();
+            }
+            Action::Skip => {
+                state.next_subtitle();
+            }
+            Action::Quit => break Ok(()),
+        }
+
+        state.update_definition(conn);
+    };
+
+    crossterm::terminal::disable_raw_mode().context("failed to disable raw mode")?;
+
+    res
 }
 
 #[cfg(test)]
