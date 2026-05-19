@@ -28,6 +28,7 @@ pub fn build_index(conn: &Connection, tsv_path: &str) -> anyhow::Result<()> {
 
     for line in content.lines().skip(1) {
         let line = line.trim();
+        println!("LINE ===> {}", &line);
         if line.is_empty() {
             continue;
         }
@@ -35,6 +36,7 @@ pub fn build_index(conn: &Connection, tsv_path: &str) -> anyhow::Result<()> {
         if cols.len() < 4 {
             continue;
         }
+        println!("COL ===> {:?}", cols);
         let lemma = cols[0];
         let meaning = cols[1];
         let pos = cols[2];
@@ -47,9 +49,8 @@ pub fn build_index(conn: &Connection, tsv_path: &str) -> anyhow::Result<()> {
 }
 
 pub fn lookup(conn: &Connection, lemma: &str) -> anyhow::Result<Option<DictEntry>> {
-    let mut stmt = conn.prepare(
-        "SELECT lemma, meaning, pos, examples FROM dictionary WHERE lemma = ?1",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT lemma, meaning, pos, examples FROM dictionary WHERE lemma = ?1")?;
 
     let mut rows = stmt.query(rusqlite::params![lemma])?;
     if let Some(row) = rows.next()? {
