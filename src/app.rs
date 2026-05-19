@@ -6,7 +6,17 @@ use crate::ui::build_layout;
 use crate::ui::candidate_pane::render_candidate_pane;
 use crate::ui::definition_pane::render_definition_pane;
 use crate::ui::source_pane::render_source_pane;
+use ratatui::crossterm::event::KeyCode;
 use ratatui::Frame;
+
+#[derive(Debug, PartialEq)]
+pub enum Action {
+    None,
+    AddToDeck,
+    MarkKnown,
+    Skip,
+    Quit,
+}
 
 pub struct AppState {
     pub subtitles: Vec<Subtitle>,
@@ -95,6 +105,36 @@ impl AppState {
         };
         state.recompute_candidates();
         state
+    }
+}
+
+pub fn handle_key(state: &mut AppState, key: KeyCode) -> Action {
+    match key {
+        KeyCode::Up => {
+            state.prev_candidate();
+            Action::None
+        }
+        KeyCode::Down => {
+            state.next_candidate();
+            Action::None
+        }
+        KeyCode::Left => {
+            state.prev_subtitle();
+            Action::None
+        }
+        KeyCode::Right => {
+            state.next_subtitle();
+            Action::None
+        }
+        KeyCode::Tab => {
+            state.switch_pane();
+            Action::None
+        }
+        KeyCode::Char('a') => Action::AddToDeck,
+        KeyCode::Char('k') => Action::MarkKnown,
+        KeyCode::Char('s') => Action::Skip,
+        KeyCode::Char('q') => Action::Quit,
+        _ => Action::None,
     }
 }
 
@@ -232,5 +272,108 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| state.draw(f)).unwrap();
+    }
+
+    #[test]
+    fn key_up_moves_candidate() {
+        let subtitles = vec![Subtitle {
+            index: 1,
+            timestamp: "".to_string(),
+            text: "책을 읽습니다".to_string(),
+        }];
+        let mut state = AppState::new(subtitles, "t.srt".to_string());
+        state.next_candidate();
+        assert_eq!(state.candidate_cursor, 1);
+        assert_eq!(handle_key(&mut state, KeyCode::Up), Action::None);
+        assert_eq!(state.candidate_cursor, 0);
+    }
+
+    #[test]
+    fn key_down_moves_candidate() {
+        let subtitles = vec![Subtitle {
+            index: 1,
+            timestamp: "".to_string(),
+            text: "책을 읽습니다".to_string(),
+        }];
+        let mut state = AppState::new(subtitles, "t.srt".to_string());
+        assert_eq!(state.candidate_cursor, 0);
+        assert_eq!(handle_key(&mut state, KeyCode::Down), Action::None);
+        assert_eq!(state.candidate_cursor, 1);
+    }
+
+    #[test]
+    fn key_left_moves_subtitle() {
+        let subtitles = vec![Subtitle {
+            index: 1,
+            timestamp: "".to_string(),
+            text: "안녕".to_string(),
+        }];
+        let mut state = AppState::new(subtitles, "t.srt".to_string());
+        assert_eq!(state.subtitle_cursor, 0);
+        assert_eq!(handle_key(&mut state, KeyCode::Left), Action::None);
+        assert_eq!(state.subtitle_cursor, 0);
+    }
+
+    #[test]
+    fn key_right_moves_subtitle() {
+        let subtitles = vec![
+            Subtitle {
+                index: 1,
+                timestamp: "".to_string(),
+                text: "안녕".to_string(),
+            },
+            Subtitle {
+                index: 2,
+                timestamp: "".to_string(),
+                text: "반가워".to_string(),
+            },
+        ];
+        let mut state = AppState::new(subtitles, "t.srt".to_string());
+        assert_eq!(state.subtitle_cursor, 0);
+        assert_eq!(handle_key(&mut state, KeyCode::Right), Action::None);
+        assert_eq!(state.subtitle_cursor, 1);
+    }
+
+    #[test]
+    fn key_tab_switches_pane() {
+        let subtitles = vec![Subtitle {
+            index: 1,
+            timestamp: "".to_string(),
+            text: "안녕".to_string(),
+        }];
+        let mut state = AppState::new(subtitles, "t.srt".to_string());
+        assert!(matches!(state.active_pane, Pane::Candidates));
+        assert_eq!(handle_key(&mut state, KeyCode::Tab), Action::None);
+        assert!(matches!(state.active_pane, Pane::Definition));
+    }
+
+    #[test]
+    fn key_a_returns_add_to_deck() {
+        let mut state = AppState::new(vec![], "t.srt".to_string());
+        assert!(matches!(handle_key(&mut state, KeyCode::Char('a')), Action::AddToDeck));
+    }
+
+    #[test]
+    fn key_k_returns_mark_known() {
+        let mut state = AppState::new(vec![], "t.srt".to_string());
+        assert!(matches!(handle_key(&mut state, KeyCode::Char('k')), Action::MarkKnown));
+    }
+
+    #[test]
+    fn key_s_returns_skip() {
+        let mut state = AppState::new(vec![], "t.srt".to_string());
+        assert!(matches!(handle_key(&mut state, KeyCode::Char('s')), Action::Skip));
+    }
+
+    #[test]
+    fn key_q_returns_quit() {
+        let mut state = AppState::new(vec![], "t.srt".to_string());
+        assert!(matches!(handle_key(&mut state, KeyCode::Char('q')), Action::Quit));
+    }
+
+    #[test]
+    fn key_unknown_returns_none() {
+        let mut state = AppState::new(vec![], "t.srt".to_string());
+        assert!(matches!(handle_key(&mut state, KeyCode::Char('z')), Action::None));
     }
 }
