@@ -8,7 +8,7 @@ use lantern::app;
 use lantern::dictionary;
 use lantern::filter::{FilterConfig, load_frequency_list, load_known_list};
 use lantern::parser::srt::parse_srt;
-use lantern::store::{init_store, get_stats};
+use lantern::store::{init_store, get_stats, add_known_word, list_known_words};
 
 #[derive(Parser)]
 #[command(name = "lantern", about = "Korean vocabulary mining TUI")]
@@ -122,18 +122,16 @@ fn cmd_stats() -> anyhow::Result<()> {
 
 fn cmd_known_add(word: String) -> anyhow::Result<()> {
     let conn = open_db()?;
-    lantern::store::mark_known(&conn, &word)?;
+    let known_path = data_dir().join("known.txt");
+    add_known_word(&conn, &word, &known_path.to_string_lossy())?;
     println!("marked '{word}' as known");
     Ok(())
 }
 
 fn cmd_known_list() -> anyhow::Result<()> {
     let conn = open_db()?;
-    let mut stmt = conn.prepare("SELECT lemma FROM known_words ORDER BY lemma")?;
-    let rows: Vec<String> = stmt
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    for lemma in &rows {
+    let words = list_known_words(&conn)?;
+    for lemma in &words {
         println!("{lemma}");
     }
     Ok(())

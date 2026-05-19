@@ -40,6 +40,24 @@ pub fn mark_known(conn: &Connection, lemma: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn list_known_words(conn: &Connection) -> anyhow::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT lemma FROM known_words ORDER BY lemma")?;
+    let lemmas: Vec<String> = stmt
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(lemmas)
+}
+
+pub fn add_known_word(conn: &Connection, lemma: &str, known_path: &str) -> anyhow::Result<()> {
+    mark_known(conn, lemma)?;
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(known_path)?;
+    writeln!(file, "{lemma}")?;
+    Ok(())
+}
+
 pub fn sync_wordlist(conn: &Connection, path: &str) -> anyhow::Result<()> {
     let mut stmt = conn.prepare("SELECT lemma FROM deck WHERE status = 'new'")?;
     let lemmas: Vec<String> = stmt
@@ -193,6 +211,38 @@ mod tests {
             .query_row("SELECT lemma FROM known_words", [], |row| row.get(0))
             .unwrap();
         assert_eq!(lemma, "먹다");
+    }
+
+    #[test]
+    fn known_add_persists() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let known_path = std::env::temp_dir().join("test_known_add.txt");
+        // Remove if left over from previous run
+        let _ = std::fs::remove_file(&known_path);
+
+        add_known_word(&conn, "먹다", known_path.to_str().unwrap()).unwrap();
+
+        let lemma: String = conn
+            .query_row("SELECT lemma FROM known_words", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(lemma, "먹다");
+        let content = std::fs::read_to_string(&known_path).unwrap();
+        assert!(content.lines().any(|l| l == "먹다"));
+        std::fs::remove_file(&known_path).unwrap();
+    }
+
+    #[test]
+    fn known_list_returns_added_words() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        mark_known(&conn, "먹다").unwrap();
+        mark_known(&conn, "가다").unwrap();
+
+        let words = list_known_words(&conn).unwrap();
+        assert_eq!(words.len(), 2);
+        assert!(words.contains(&"먹다".to_string()));
+        assert!(words.contains(&"가다".to_string()));
     }
 
     #[test]
