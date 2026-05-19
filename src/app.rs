@@ -6,12 +6,17 @@ use crate::tokenizer::tokenize;
 use crate::ui::build_layout;
 use crate::ui::candidate_pane::render_candidate_pane;
 use crate::ui::definition_pane::render_definition_pane;
+use crate::ui::render_help_bar;
 use crate::ui::render_status_bar;
 use crate::ui::source_pane::render_source_pane;
 use anyhow::Context;
+use ratatui::crossterm::cursor::MoveTo;
 use ratatui::crossterm::event::{self, Event, KeyCode};
+use ratatui::crossterm::terminal::{Clear, ClearType};
+use ratatui::crossterm::execute;
 use ratatui::Frame;
 use rusqlite::Connection;
+use std::io::stdout;
 use std::time::Duration;
 
 use crate::filter::FilterConfig;
@@ -45,11 +50,12 @@ pub enum Pane {
 
 impl AppState {
     pub fn draw(&self, f: &mut Frame) {
-        let (src, cand, def, status) = build_layout(f.area());
+        let (src, cand, def, status, help) = build_layout(f.area());
         render_source_pane(f, src, self);
         render_candidate_pane(f, cand, self);
         render_definition_pane(f, def, self.current_definition.as_ref());
         render_status_bar(f, status, self);
+        render_help_bar(f, help);
     }
 
     pub fn current_subtitle(&self) -> Option<&Subtitle> {
@@ -160,6 +166,9 @@ pub fn run(
     conn: &Connection,
     _config: &FilterConfig,
 ) -> anyhow::Result<()> {
+    execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0))
+        .context("failed to clear terminal")?;
+
     init_store(conn).context("failed to init store")?;
 
     state.update_definition(conn);
