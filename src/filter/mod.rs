@@ -17,7 +17,7 @@ pub fn filter_content_tokens(tokens: Vec<Token>) -> Vec<Token> {
         .filter(|t| {
             let first = t.pos.as_str();
             let starts_s = first.starts_with('S');
-            let is_punct = starts_s && matches!(&first[..], "SF" | "SP" | "SS");
+            let is_punct = starts_s && matches!(first, "SF" | "SP" | "SS");
             !(first.starts_with('J') || is_punct)
         })
         .collect()

@@ -158,7 +158,7 @@ pub fn handle_key(state: &mut AppState, key: KeyCode) -> Action {
 pub fn run(
     state: &mut AppState,
     conn: &Connection,
-    config: &FilterConfig,
+    _config: &FilterConfig,
 ) -> anyhow::Result<()> {
     init_store(conn).context("failed to init store")?;
 
