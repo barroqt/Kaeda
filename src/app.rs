@@ -5,6 +5,7 @@ use crate::tokenizer::tokenize;
 use crate::ui::build_layout;
 use crate::ui::candidate_pane::render_candidate_pane;
 use crate::ui::definition_pane::render_definition_pane;
+use crate::ui::render_status_bar;
 use crate::ui::source_pane::render_source_pane;
 use ratatui::crossterm::event::KeyCode;
 use ratatui::Frame;
@@ -36,10 +37,11 @@ pub enum Pane {
 
 impl AppState {
     pub fn draw(&self, f: &mut Frame) {
-        let (src, cand, def) = build_layout(f.area());
+        let (src, cand, def, status) = build_layout(f.area());
         render_source_pane(f, src, self);
         render_candidate_pane(f, cand, self);
         render_definition_pane(f, def, None);
+        render_status_bar(f, status, self);
     }
 
     pub fn current_subtitle(&self) -> Option<&Subtitle> {
