@@ -52,6 +52,34 @@ pub fn sync_wordlist(conn: &Connection, path: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub struct Stats {
+    pub total_words: i64,
+    pub added_today: i64,
+    pub total_known: i64,
+}
+
+pub fn get_stats(conn: &Connection) -> anyhow::Result<Stats> {
+    let total_words: i64 = conn
+        .query_row("SELECT COUNT(*) FROM deck", [], |row| row.get(0))
+        .unwrap_or(0);
+    let today_prefix = Utc::now().format("%Y-%m-%d").to_string();
+    let added_today: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM deck WHERE added_at LIKE ?1",
+            rusqlite::params![format!("{}%", today_prefix)],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    let total_known: i64 = conn
+        .query_row("SELECT COUNT(*) FROM known_words", [], |row| row.get(0))
+        .unwrap_or(0);
+    Ok(Stats {
+        total_words,
+        added_today,
+        total_known,
+    })
+}
+
 pub fn add_to_deck(conn: &Connection, entry: &DeckEntry) -> anyhow::Result<()> {
     conn.execute(
         "INSERT OR IGNORE INTO deck (lemma, surface, meaning, source_sentence, source_file, added_at, status)
@@ -71,6 +99,68 @@ pub fn add_to_deck(conn: &Connection, entry: &DeckEntry) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn get_stats_returns_zero_for_empty_db() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let stats = get_stats(&conn).unwrap();
+        assert_eq!(stats.total_words, 0);
+        assert_eq!(stats.added_today, 0);
+        assert_eq!(stats.total_known, 0);
+    }
+
+    #[test]
+    fn stats_output_contains_total_count() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let entry = DeckEntry {
+            lemma: "먹다".to_string(),
+            surface: "먹".to_string(),
+            meaning: "to eat".to_string(),
+            source_sentence: "나는 밥을 먹는다".to_string(),
+            source_file: "test.srt".to_string(),
+        };
+        add_to_deck(&conn, &entry).unwrap();
+        let entry2 = DeckEntry {
+            lemma: "가다".to_string(),
+            surface: "가".to_string(),
+            meaning: "to go".to_string(),
+            source_sentence: "집에 간다".to_string(),
+            source_file: "test.srt".to_string(),
+        };
+        add_to_deck(&conn, &entry2).unwrap();
+        mark_known(&conn, "보다").unwrap();
+
+        let stats = get_stats(&conn).unwrap();
+        assert_eq!(stats.total_words, 2);
+        assert_eq!(stats.total_known, 1);
+    }
+
+    #[test]
+    fn get_stats_counts_added_today() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let yesterday = "2000-01-01"; // far in the past
+
+        conn.execute(
+            "INSERT INTO deck (lemma, surface, meaning, added_at, status)
+             VALUES (?1, '', '', ?2, 'new')",
+            rusqlite::params!["오늘단어", format!("{}T12:00:00+00:00", today)],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO deck (lemma, surface, meaning, added_at, status)
+             VALUES (?1, '', '', ?2, 'new')",
+            rusqlite::params!["어제단어", format!("{}T12:00:00+00:00", yesterday)],
+        )
+        .unwrap();
+
+        let stats = get_stats(&conn).unwrap();
+        assert_eq!(stats.total_words, 2);
+        assert_eq!(stats.added_today, 1);
+    }
 
     #[test]
     fn add_to_deck_persists_entry() {

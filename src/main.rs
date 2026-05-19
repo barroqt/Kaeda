@@ -8,7 +8,7 @@ use lantern::app;
 use lantern::dictionary;
 use lantern::filter::{FilterConfig, load_frequency_list, load_known_list};
 use lantern::parser::srt::parse_srt;
-use lantern::store::init_store;
+use lantern::store::{init_store, get_stats};
 
 #[derive(Parser)]
 #[command(name = "lantern", about = "Korean vocabulary mining TUI")]
@@ -109,16 +109,13 @@ fn cmd_mine(file: PathBuf) -> anyhow::Result<()> {
 
 fn cmd_stats() -> anyhow::Result<()> {
     let conn = open_db()?;
+    let stats = get_stats(&conn)?;
 
-    let total: i64 = conn
-        .query_row("SELECT COUNT(*) FROM deck", [], |row| row.get(0))
-        .unwrap_or(0);
-    let known: i64 = conn
-        .query_row("SELECT COUNT(*) FROM known_words", [], |row| row.get(0))
-        .unwrap_or(0);
-
-    println!("deck entries: {total}");
-    println!("known words:  {known}");
+    println!("{:<20} {:>8}", "Metric", "Value");
+    println!("{:<20} {:>8}", "──────", "─────");
+    println!("{:<20} {:>8}", "total words", stats.total_words);
+    println!("{:<20} {:>8}", "added today", stats.added_today);
+    println!("{:<20} {:>8}", "known words", stats.total_known);
 
     Ok(())
 }
