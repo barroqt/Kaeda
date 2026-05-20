@@ -17,6 +17,40 @@ fn verb_lemma(surface: &str, pos: &str) -> String {
     }
 }
 
+pub struct KoreanTokenizer {
+    tokenizer: Tokenizer,
+}
+
+impl KoreanTokenizer {
+    pub fn new() -> anyhow::Result<Self> {
+        let dictionary = lindera_ko_dic::embedded::load()?;
+        let segmenter = Segmenter::new(Mode::Normal, dictionary, None);
+        let tokenizer = Tokenizer::new(segmenter);
+        Ok(KoreanTokenizer { tokenizer })
+    }
+
+    pub fn tokenize(&self, text: &str) -> anyhow::Result<Vec<Token>> {
+        let mut tokens = self.tokenizer.tokenize(text)?;
+
+        let result = tokens
+            .iter_mut()
+            .map(|t| {
+                let surface = t.surface.to_string();
+                let details = t.details();
+                let pos = details.first().unwrap_or(&"UNKNOWN").to_string();
+                let lemma = verb_lemma(&surface, &pos);
+                Token {
+                    surface,
+                    lemma,
+                    pos,
+                }
+            })
+            .collect();
+
+        Ok(result)
+    }
+}
+
 pub fn tokenize(text: &str) -> anyhow::Result<Vec<Token>> {
     let dictionary = lindera_ko_dic::embedded::load()?;
     let segmenter = Segmenter::new(Mode::Normal, dictionary, None);

@@ -1,2 +1,2 @@
 pub mod korean;
-pub use korean::{Token, tokenize};
+pub use korean::{KoreanTokenizer, Token, tokenize};

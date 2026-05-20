@@ -101,8 +101,9 @@ fn cmd_mine(file: PathBuf) -> anyhow::Result<()> {
         known_set,
     };
 
+    let tokenizer = lantern::tokenizer::korean::KoreanTokenizer::new()?;
     let subtitles = parse_srt(&file.to_string_lossy())?;
-    let mut state = app::AppState::new(subtitles, file.to_string_lossy().to_string());
+    let mut state = app::AppState::new(subtitles, file.to_string_lossy().to_string(), &tokenizer);
 
     app::run(&mut state, &conn, &config)
 }

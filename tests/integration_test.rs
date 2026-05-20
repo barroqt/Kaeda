@@ -1,8 +1,9 @@
-use lantern::app::{handle_key, Action, AppState, Pane};
+use lantern::app::{handle_key, Action, AppState};
 use lantern::dictionary::db::build_index;
 use lantern::filter::FilterConfig;
 use lantern::parser::srt::parse_srt;
-use lantern::store::{add_to_deck, init_store, mark_known, DeckEntry};
+use lantern::store::{add_to_deck, init_store, DeckEntry};
+use lantern::tokenizer::korean::KoreanTokenizer;
 use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::KeyCode;
 use ratatui::Terminal;
@@ -11,8 +12,9 @@ use std::collections::HashSet;
 
 #[test]
 fn full_session_smoke_test() {
+    let tokenizer = KoreanTokenizer::new().unwrap();
     let subtitles = parse_srt("tests/fixtures/sample.srt").unwrap();
-    let mut state = AppState::new(subtitles, "sample.srt".to_string());
+    let mut state = AppState::new(subtitles, "sample.srt".to_string(), &tokenizer);
 
     let conn = Connection::open_in_memory().unwrap();
     build_index(&conn, "tests/fixtures/dict_sample.tsv").unwrap();

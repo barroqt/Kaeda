@@ -50,7 +50,7 @@ pub fn build_index(conn: &Connection, tsv_path: &str) -> anyhow::Result<()> {
 
 pub fn lookup(conn: &Connection, lemma: &str) -> anyhow::Result<Option<DictEntry>> {
     let mut stmt =
-        conn.prepare("SELECT lemma, meaning, pos, examples FROM dictionary WHERE lemma = ?1")?;
+        conn.prepare_cached("SELECT lemma, meaning, pos, examples FROM dictionary WHERE lemma = ?1")?;
 
     let mut rows = stmt.query(rusqlite::params![lemma])?;
     if let Some(row) = rows.next()? {

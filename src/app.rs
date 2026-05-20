@@ -1,8 +1,7 @@
 use crate::dictionary::db::{lookup, DictEntry};
 use crate::filter::filter_content_tokens;
 use crate::parser::srt::Subtitle;
-use crate::tokenizer::korean::Token;
-use crate::tokenizer::tokenize;
+use crate::tokenizer::korean::{KoreanTokenizer, Token};
 use crate::ui::build_layout;
 use crate::ui::candidate_pane::render_candidate_pane;
 use crate::ui::definition_pane::render_definition_pane;
@@ -14,6 +13,7 @@ use ratatui::crossterm::cursor::MoveTo;
 use ratatui::crossterm::event::{self, Event, KeyCode};
 use ratatui::crossterm::terminal::{Clear, ClearType};
 use ratatui::crossterm::execute;
+use ratatui::layout::Rect;
 use ratatui::Frame;
 use rusqlite::Connection;
 use std::io::stdout;
@@ -33,6 +33,7 @@ pub enum Action {
 
 pub struct AppState {
     pub subtitles: Vec<Subtitle>,
+    pub pre_tokenized: Vec<Vec<Token>>,
     pub subtitle_cursor: usize,
     pub candidates: Vec<Token>,
     pub candidate_cursor: usize,
@@ -40,6 +41,9 @@ pub struct AppState {
     pub source_file: String,
     pub deck_count: usize,
     pub current_definition: Option<DictEntry>,
+    pub needs_redraw: bool,
+    cached_layout_area: Option<Rect>,
+    cached_layout: Option<(Rect, Rect, Rect, Rect, Rect)>,
 }
 
 pub enum Pane {
@@ -49,8 +53,16 @@ pub enum Pane {
 }
 
 impl AppState {
-    pub fn draw(&self, f: &mut Frame) {
-        let (src, cand, def, status, help) = build_layout(f.area());
+    pub fn draw(&mut self, f: &mut Frame) {
+        let area = f.area();
+        let (src, cand, def, status, help) = if self.cached_layout_area == Some(area) {
+            self.cached_layout.unwrap()
+        } else {
+            let layout = build_layout(area);
+            self.cached_layout_area = Some(area);
+            self.cached_layout = Some(layout);
+            layout
+        };
         render_source_pane(f, src, self);
         render_candidate_pane(f, cand, self);
         render_definition_pane(f, def, self.current_definition.as_ref());
@@ -70,11 +82,13 @@ impl AppState {
         let next = self.candidate_cursor.saturating_add(1);
         if next < self.candidates.len() {
             self.candidate_cursor = next;
+            self.needs_redraw = true;
         }
     }
 
     pub fn prev_candidate(&mut self) {
         self.candidate_cursor = self.candidate_cursor.saturating_sub(1);
+        self.needs_redraw = true;
     }
 
     pub fn next_subtitle(&mut self) {
@@ -98,26 +112,39 @@ impl AppState {
             Pane::Candidates => Pane::Definition,
             Pane::Definition => Pane::Source,
         };
+        self.needs_redraw = true;
     }
 
     fn recompute_candidates(&mut self) {
         self.candidates = self
-            .subtitles
+            .pre_tokenized
             .get(self.subtitle_cursor)
-            .map(|s| tokenize(&s.text).map(filter_content_tokens).unwrap_or_default())
+            .cloned()
             .unwrap_or_default();
         self.candidate_cursor = 0;
+        self.needs_redraw = true;
     }
 
     pub fn update_definition(&mut self, conn: &Connection) {
         self.current_definition = self
             .selected_candidate()
             .and_then(|t| lookup(conn, &t.lemma).ok().flatten());
+        self.needs_redraw = true;
     }
 
-    pub fn new(subtitles: Vec<Subtitle>, source_file: String) -> Self {
+    pub fn new(subtitles: Vec<Subtitle>, source_file: String, tokenizer: &KoreanTokenizer) -> Self {
+        let pre_tokenized: Vec<Vec<Token>> = subtitles
+            .iter()
+            .map(|s| {
+                tokenizer
+                    .tokenize(&s.text)
+                    .map(filter_content_tokens)
+                    .unwrap_or_default()
+            })
+            .collect();
         let mut state = AppState {
             subtitles,
+            pre_tokenized,
             subtitle_cursor: 0,
             candidates: Vec::new(),
             candidate_cursor: 0,
@@ -125,6 +152,9 @@ impl AppState {
             source_file,
             deck_count: 0,
             current_definition: None,
+            needs_redraw: true,
+            cached_layout_area: None,
+            cached_layout: None,
         };
         state.recompute_candidates();
         state
@@ -180,7 +210,10 @@ pub fn run(
     crossterm::terminal::enable_raw_mode().context("failed to enable raw mode")?;
 
     let res = loop {
-        terminal.draw(|f| state.draw(f))?;
+        if state.needs_redraw {
+            terminal.draw(|f| state.draw(f))?;
+            state.needs_redraw = false;
+        }
 
         if !event::poll(Duration::from_millis(100))? {
             continue;
@@ -240,6 +273,10 @@ pub fn run(
 mod tests {
     use super::*;
 
+    fn test_tokenizer() -> KoreanTokenizer {
+        KoreanTokenizer::new().unwrap()
+    }
+
     #[test]
     fn current_subtitle_returns_first() {
         let subtitles = vec![
@@ -254,7 +291,7 @@ mod tests {
                 text: "반갑습니다".to_string(),
             },
         ];
-        let state = AppState::new(subtitles, "test.srt".to_string());
+        let state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
         let sub = state.current_subtitle().unwrap();
         assert_eq!(sub.index, 1);
         assert_eq!(sub.text, "안녕하세요");
@@ -267,7 +304,7 @@ mod tests {
             timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
             text: "책을 읽습니다".to_string(),
         }];
-        let state = AppState::new(subtitles, "test.srt".to_string());
+        let state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
         let token = state.selected_candidate().unwrap();
         assert_eq!(token.surface, "책");
     }
@@ -279,7 +316,7 @@ mod tests {
             timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
             text: "책을 읽습니다".to_string(),
         }];
-        let mut state = AppState::new(subtitles, "test.srt".to_string());
+        let mut state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
         assert_eq!(state.candidate_cursor, 0);
         state.next_candidate();
         assert_eq!(state.candidate_cursor, 1);
@@ -292,7 +329,7 @@ mod tests {
             timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
             text: "책을 읽습니다".to_string(),
         }];
-        let mut state = AppState::new(subtitles, "test.srt".to_string());
+        let mut state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
         assert_eq!(state.candidate_cursor, 0);
         state.prev_candidate();
         assert_eq!(state.candidate_cursor, 0);
@@ -312,7 +349,7 @@ mod tests {
                 text: "두 번째 문장".to_string(),
             },
         ];
-        let mut state = AppState::new(subtitles, "test.srt".to_string());
+        let mut state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
         state.next_candidate();
         assert_eq!(state.candidate_cursor, 1);
         state.next_subtitle();
@@ -327,7 +364,7 @@ mod tests {
             timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
             text: "첫 번째 문장".to_string(),
         }];
-        let mut state = AppState::new(subtitles, "test.srt".to_string());
+        let mut state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
         state.prev_subtitle();
         assert_eq!(state.subtitle_cursor, 0);
     }
@@ -339,7 +376,7 @@ mod tests {
             timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
             text: "안녕하세요".to_string(),
         }];
-        let mut state = AppState::new(subtitles, "test.srt".to_string());
+        let mut state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
         assert!(matches!(state.active_pane, Pane::Candidates));
         state.switch_pane();
         assert!(matches!(state.active_pane, Pane::Definition));
@@ -366,7 +403,7 @@ mod tests {
                 text: "반갑습니다".to_string(),
             },
         ];
-        let state = AppState::new(subtitles, "test.srt".to_string());
+        let mut state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| state.draw(f)).unwrap();
@@ -379,7 +416,7 @@ mod tests {
             timestamp: "".to_string(),
             text: "책을 읽습니다".to_string(),
         }];
-        let mut state = AppState::new(subtitles, "t.srt".to_string());
+        let mut state = AppState::new(subtitles, "t.srt".to_string(), &test_tokenizer());
         state.next_candidate();
         assert_eq!(state.candidate_cursor, 1);
         assert_eq!(handle_key(&mut state, KeyCode::Up), Action::None);
@@ -393,7 +430,7 @@ mod tests {
             timestamp: "".to_string(),
             text: "책을 읽습니다".to_string(),
         }];
-        let mut state = AppState::new(subtitles, "t.srt".to_string());
+        let mut state = AppState::new(subtitles, "t.srt".to_string(), &test_tokenizer());
         assert_eq!(state.candidate_cursor, 0);
         assert_eq!(handle_key(&mut state, KeyCode::Down), Action::None);
         assert_eq!(state.candidate_cursor, 1);
@@ -406,7 +443,7 @@ mod tests {
             timestamp: "".to_string(),
             text: "안녕".to_string(),
         }];
-        let mut state = AppState::new(subtitles, "t.srt".to_string());
+        let mut state = AppState::new(subtitles, "t.srt".to_string(), &test_tokenizer());
         assert_eq!(state.subtitle_cursor, 0);
         assert_eq!(handle_key(&mut state, KeyCode::Left), Action::None);
         assert_eq!(state.subtitle_cursor, 0);
@@ -426,7 +463,7 @@ mod tests {
                 text: "반가워".to_string(),
             },
         ];
-        let mut state = AppState::new(subtitles, "t.srt".to_string());
+        let mut state = AppState::new(subtitles, "t.srt".to_string(), &test_tokenizer());
         assert_eq!(state.subtitle_cursor, 0);
         assert_eq!(handle_key(&mut state, KeyCode::Right), Action::None);
         assert_eq!(state.subtitle_cursor, 1);
@@ -439,7 +476,7 @@ mod tests {
             timestamp: "".to_string(),
             text: "안녕".to_string(),
         }];
-        let mut state = AppState::new(subtitles, "t.srt".to_string());
+        let mut state = AppState::new(subtitles, "t.srt".to_string(), &test_tokenizer());
         assert!(matches!(state.active_pane, Pane::Candidates));
         assert_eq!(handle_key(&mut state, KeyCode::Tab), Action::None);
         assert!(matches!(state.active_pane, Pane::Definition));
@@ -447,31 +484,31 @@ mod tests {
 
     #[test]
     fn key_a_returns_add_to_deck() {
-        let mut state = AppState::new(vec![], "t.srt".to_string());
+        let mut state = AppState::new(vec![], "t.srt".to_string(), &test_tokenizer());
         assert!(matches!(handle_key(&mut state, KeyCode::Char('a')), Action::AddToDeck));
     }
 
     #[test]
     fn key_k_returns_mark_known() {
-        let mut state = AppState::new(vec![], "t.srt".to_string());
+        let mut state = AppState::new(vec![], "t.srt".to_string(), &test_tokenizer());
         assert!(matches!(handle_key(&mut state, KeyCode::Char('k')), Action::MarkKnown));
     }
 
     #[test]
     fn key_s_returns_skip() {
-        let mut state = AppState::new(vec![], "t.srt".to_string());
+        let mut state = AppState::new(vec![], "t.srt".to_string(), &test_tokenizer());
         assert!(matches!(handle_key(&mut state, KeyCode::Char('s')), Action::Skip));
     }
 
     #[test]
     fn key_q_returns_quit() {
-        let mut state = AppState::new(vec![], "t.srt".to_string());
+        let mut state = AppState::new(vec![], "t.srt".to_string(), &test_tokenizer());
         assert!(matches!(handle_key(&mut state, KeyCode::Char('q')), Action::Quit));
     }
 
     #[test]
     fn key_unknown_returns_none() {
-        let mut state = AppState::new(vec![], "t.srt".to_string());
+        let mut state = AppState::new(vec![], "t.srt".to_string(), &test_tokenizer());
         assert!(matches!(handle_key(&mut state, KeyCode::Char('z')), Action::None));
     }
 }
