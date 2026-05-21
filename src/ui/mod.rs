@@ -1,5 +1,6 @@
 pub mod candidate_pane;
 pub mod definition_pane;
+pub mod menu;
 pub mod source_pane;
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
