@@ -70,6 +70,45 @@ pub fn sync_wordlist(conn: &Connection, path: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub struct StatsState {
+    pub total_words: usize,
+    pub added_today: usize,
+    pub total_known: usize,
+}
+
+impl StatsState {
+    pub fn load(conn: &Connection) -> anyhow::Result<Self> {
+        let total_words: i64 = conn
+            .query_row("SELECT COUNT(*) FROM deck", [], |row| row.get(0))
+            .unwrap_or(0);
+        let added_today: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM deck WHERE date(added_at) = date('now')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        let total_known: i64 = conn
+            .query_row("SELECT COUNT(*) FROM known_words", [], |row| row.get(0))
+            .unwrap_or(0);
+        Ok(StatsState {
+            total_words: total_words as usize,
+            added_today: added_today as usize,
+            total_known: total_known as usize,
+        })
+    }
+}
+
+pub fn load_known_list(conn: &Connection) -> anyhow::Result<Vec<String>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT lemma FROM known_words ORDER BY lemma",
+    )?;
+    let lemmas: Vec<String> = stmt
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(lemmas)
+}
+
 pub struct Stats {
     pub total_words: i64,
     pub added_today: i64,
@@ -288,5 +327,52 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM deck", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn stats_load_returns_zero_on_empty_db() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let stats = StatsState::load(&conn).unwrap();
+        assert_eq!(stats.total_words, 0);
+        assert_eq!(stats.added_today, 0);
+        assert_eq!(stats.total_known, 0);
+    }
+
+    #[test]
+    fn stats_load_counts_correctly_after_inserts() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let entry = DeckEntry {
+            lemma: "먹다".to_string(),
+            surface: "먹".to_string(),
+            meaning: "to eat".to_string(),
+            source_sentence: "나는 밥을 먹는다".to_string(),
+            source_file: "test.srt".to_string(),
+        };
+        add_to_deck(&conn, &entry).unwrap();
+        let entry2 = DeckEntry {
+            lemma: "가다".to_string(),
+            surface: "가".to_string(),
+            meaning: "to go".to_string(),
+            source_sentence: "집에 간다".to_string(),
+            source_file: "test.srt".to_string(),
+        };
+        add_to_deck(&conn, &entry2).unwrap();
+        mark_known(&conn, "보다").unwrap();
+        let stats = StatsState::load(&conn).unwrap();
+        assert_eq!(stats.total_words, 2);
+        assert_eq!(stats.total_known, 1);
+    }
+
+    #[test]
+    fn load_known_list_returns_alphabetical_order() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        mark_known(&conn, "가다").unwrap();
+        mark_known(&conn, "나다").unwrap();
+        mark_known(&conn, "가마").unwrap();
+        let words = load_known_list(&conn).unwrap();
+        assert_eq!(words, vec!["가다", "가마", "나다"]);
     }
 }
