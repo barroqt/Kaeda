@@ -22,6 +22,72 @@ use std::time::Duration;
 use crate::filter::FilterConfig;
 use crate::store::{add_to_deck, init_store, mark_known, DeckEntry};
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Screen {
+    Menu,
+    Mining,
+    Stats,
+    KnownAdd,
+    KnownList,
+}
+
+pub struct MenuState {
+    pub options: Vec<&'static str>,
+    pub selected: usize,
+}
+
+impl MenuState {
+    pub fn new() -> Self {
+        Self {
+            options: vec!["Mine", "Stats", "Known: Add", "Known: List"],
+            selected: 0,
+        }
+    }
+
+    pub fn next(&mut self) {
+        let next = self.selected.saturating_add(1);
+        if next < self.options.len() {
+            self.selected = next;
+        }
+    }
+
+    pub fn prev(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    pub fn selected_screen(&self) -> Screen {
+        match self.selected {
+            0 => Screen::Mining,
+            1 => Screen::Stats,
+            2 => Screen::KnownAdd,
+            3 => Screen::KnownList,
+            _ => Screen::Menu,
+        }
+    }
+}
+
+pub struct App {
+    pub screen: Screen,
+    pub menu: MenuState,
+    pub mining: Option<AppState>,
+    pub stats: Option<()>,
+    pub known_list: Option<Vec<String>>,
+    pub known_add_input: String,
+}
+
+impl App {
+    pub fn new() -> Self {
+        Self {
+            screen: Screen::Menu,
+            menu: MenuState::new(),
+            mining: None,
+            stats: None,
+            known_list: None,
+            known_add_input: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Action {
     None,
@@ -510,5 +576,48 @@ mod tests {
     fn key_unknown_returns_none() {
         let mut state = AppState::new(vec![], "t.srt".to_string(), &test_tokenizer());
         assert!(matches!(handle_key(&mut state, KeyCode::Char('z')), Action::None));
+    }
+
+    #[test]
+    fn menu_next_increments_selected() {
+        let mut menu = MenuState::new();
+        assert_eq!(menu.selected, 0);
+        menu.next();
+        assert_eq!(menu.selected, 1);
+        menu.next();
+        assert_eq!(menu.selected, 2);
+        menu.next();
+        assert_eq!(menu.selected, 3);
+        menu.next();
+        assert_eq!(menu.selected, 3);
+    }
+
+    #[test]
+    fn menu_prev_at_zero_stays_zero() {
+        let mut menu = MenuState::new();
+        assert_eq!(menu.selected, 0);
+        menu.prev();
+        assert_eq!(menu.selected, 0);
+    }
+
+    #[test]
+    fn menu_selected_screen_returns_correct_variant() {
+        let mut menu = MenuState::new();
+        assert_eq!(menu.selected_screen(), Screen::Mining);
+        menu.next();
+        assert_eq!(menu.selected_screen(), Screen::Stats);
+        menu.next();
+        assert_eq!(menu.selected_screen(), Screen::KnownAdd);
+        menu.next();
+        assert_eq!(menu.selected_screen(), Screen::KnownList);
+    }
+
+    #[test]
+    fn app_new_creates_menu_screen() {
+        let app = App::new();
+        assert_eq!(app.screen, Screen::Menu);
+        assert!(app.mining.is_none());
+        assert!(app.known_list.is_none());
+        assert!(app.known_add_input.is_empty());
     }
 }
