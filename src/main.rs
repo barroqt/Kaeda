@@ -74,16 +74,16 @@ fn open_db() -> anyhow::Result<Connection> {
 fn cmd_mine(file: PathBuf) -> anyhow::Result<()> {
     let conn = open_db()?;
 
-    let needs_build = conn
-        .query_row("SELECT COUNT(*) FROM dictionary", [], |row| {
-            let count: i64 = row.get(0)?;
-            Ok(count == 0)
-        })
-        .unwrap_or(true);
+    let dict_tsv = data_dir().join("dictionary.tsv");
+    if dict_tsv.exists() {
+        let needs_build = conn
+            .query_row("SELECT COUNT(*) FROM dictionary", [], |row| {
+                let count: i64 = row.get(0)?;
+                Ok(count == 0)
+            })
+            .unwrap_or(true);
 
-    if needs_build {
-        let dict_tsv = data_dir().join("dictionary.tsv");
-        if dict_tsv.exists() {
+        if needs_build {
             eprintln!("Building dictionary index…");
             dictionary::db::build_index(&conn, dict_tsv.to_string_lossy().as_ref())?;
             let count: i64 = conn
@@ -91,6 +91,9 @@ fn cmd_mine(file: PathBuf) -> anyhow::Result<()> {
                 .unwrap_or(0);
             eprintln!("Dictionary ready ({count} entries)");
         }
+    } else {
+        dictionary::db::ensure_dict_table(&conn)?;
+        eprintln!("No dictionary.tsv found — using online lookups with local caching");
     }
 
     let frequency_set =

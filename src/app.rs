@@ -1,4 +1,4 @@
-use crate::dictionary::db::{lookup, DictEntry};
+use crate::dictionary::db::{lookup_or_fetch, DictEntry};
 use crate::filter::filter_content_tokens;
 use crate::parser::srt::Subtitle;
 use crate::tokenizer::korean::{KoreanTokenizer, Token};
@@ -192,10 +192,12 @@ impl AppState {
     }
 
     pub fn update_definition(&mut self, conn: &Connection) {
-        self.current_definition = self
-            .selected_candidate()
-            .and_then(|t| lookup(conn, &t.lemma).ok().flatten());
-        self.needs_redraw = true;
+        let lemma = self.selected_candidate().map(|t| &t.lemma);
+        if lemma != self.current_definition.as_ref().map(|d| &d.lemma) {
+            self.current_definition = lemma
+                .and_then(|l| lookup_or_fetch(conn, l).ok().flatten());
+            self.needs_redraw = true;
+        }
     }
 
     pub fn new(subtitles: Vec<Subtitle>, source_file: String, tokenizer: &KoreanTokenizer) -> Self {
