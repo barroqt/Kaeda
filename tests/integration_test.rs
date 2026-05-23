@@ -1,9 +1,9 @@
-use lantern::app::{handle_key, Action, AppState};
-use lantern::dictionary::db::build_index;
-use lantern::filter::FilterConfig;
-use lantern::parser::srt::parse_srt;
-use lantern::store::{add_to_deck, init_store, DeckEntry};
-use lantern::tokenizer::korean::KoreanTokenizer;
+use kaeda::app::{handle_key, Action, AppState};
+use kaeda::dictionary::db::build_index;
+use kaeda::filter::FilterConfig;
+use kaeda::parser::srt::parse_srt;
+use kaeda::store::{add_to_deck, init_store, DeckEntry};
+use kaeda::tokenizer::korean::KoreanTokenizer;
 use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::KeyCode;
 use ratatui::Terminal;
