@@ -200,6 +200,26 @@ impl AppState {
         }
     }
 
+    pub fn build_deck_entry(&self) -> Option<DeckEntry> {
+        let token = self.selected_candidate()?;
+        let meaning = self
+            .current_definition
+            .as_ref()
+            .map(|d| d.meaning.clone())
+            .unwrap_or_default();
+        let source = self
+            .current_subtitle()
+            .map(|s| s.text.clone())
+            .unwrap_or_default();
+        Some(DeckEntry {
+            lemma: token.lemma.to_string(),
+            surface: token.surface.to_string(),
+            meaning,
+            source_sentence: source,
+            source_file: self.source_file.clone(),
+        })
+    }
+
     pub fn new(subtitles: Vec<Subtitle>, source_file: String, tokenizer: &KoreanTokenizer) -> Self {
         let pre_tokenized: Vec<Vec<Token>> = subtitles
             .iter()
@@ -311,23 +331,7 @@ pub fn run(
         match action {
             Action::None => {}
             Action::AddToDeck => {
-                if let Some(token) = state.selected_candidate() {
-                    let meaning = state
-                        .current_definition
-                        .as_ref()
-                        .map(|d| d.meaning.clone())
-                        .unwrap_or_default();
-                    let source = state
-                        .current_subtitle()
-                        .map(|s| s.text.clone())
-                        .unwrap_or_default();
-                    let entry = DeckEntry {
-                        lemma: token.lemma.to_string(),
-                        surface: token.surface.to_string(),
-                        meaning,
-                        source_sentence: source,
-                        source_file: state.source_file.clone(),
-                    };
+                if let Some(entry) = state.build_deck_entry() {
                     add_to_deck(conn, &entry)?;
                     state.deck_count = state.deck_count.saturating_add(1);
                 }
@@ -626,6 +630,22 @@ mod tests {
         assert_eq!(menu.selected_screen(), Screen::KnownAdd);
         menu.next();
         assert_eq!(menu.selected_screen(), Screen::KnownList);
+    }
+
+    #[test]
+    fn build_deck_entry_constructs_from_state() {
+        let subtitles = vec![Subtitle {
+            index: 1,
+            timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
+            text: "책을 읽습니다".to_string(),
+        }];
+        let state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
+        let entry = state.build_deck_entry().unwrap();
+        assert_eq!(entry.lemma, "책");
+        assert_eq!(entry.surface, "책");
+        assert_eq!(entry.meaning, "");
+        assert_eq!(entry.source_file, "test.srt");
+        assert_eq!(entry.source_sentence, "책을 읽습니다");
     }
 
     #[test]
