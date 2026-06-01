@@ -91,9 +91,215 @@ struct Meaning {
     example_ori: Option<String>,
 }
 
+#[derive(Debug)]
+struct NoWordItem;
+
+impl From<WordItem> for DictEntry {
+    fn from(item: WordItem) -> Self {
+        let lemma = strip_html_tags(&item.handle_entry);
+        let mut meanings: Vec<String> = Vec::new();
+        let mut examples: Vec<String> = Vec::new();
+        let mut pos = String::new();
+
+        for mc in item.means_collector {
+            if pos.is_empty() && !mc.part_of_speech.trim().is_empty() {
+                pos = normalize_pos(mc.part_of_speech.trim()).to_string();
+            }
+            for meaning in mc.means {
+                let clean = strip_html_tags(&meaning.value);
+                if !clean.is_empty() {
+                    meanings.push(clean);
+                }
+                if let Some(ref ex) = meaning.example_ori {
+                    let clean_ex = strip_html_tags(ex);
+                    if !clean_ex.is_empty() {
+                        examples.push(clean_ex);
+                    }
+                }
+            }
+        }
+
+        let meaning = if meanings.is_empty() {
+            "—".to_string()
+        } else {
+            meanings.join("; ")
+        };
+
+        DictEntry {
+            lemma,
+            meaning,
+            pos,
+            examples,
+        }
+    }
+}
+
+impl TryFrom<NaverResponse> for DictEntry {
+    type Error = NoWordItem;
+
+    fn try_from(response: NaverResponse) -> Result<Self, Self::Error> {
+        let item = response
+            .search_result_map
+            .and_then(|m| m.search_result_list_map)
+            .and_then(|l| l.word)
+            .and_then(|w| w.items.into_iter().next())
+            .ok_or(NoWordItem)?;
+        Ok(item.into())
+    }
+}
+
+pub fn search_naver(word: &str) -> Result<Option<DictEntry>, anyhow::Error> {
+    let response = ureq::get("https://en.dict.naver.com/api3/koen/search")
+        .header("Referer", "https://en.dict.naver.com")
+        .query("m", "mobile")
+        .query("lang", "ko")
+        .query("query", word)
+        .call()
+        .map_err(|e| anyhow::anyhow!("Naver API request failed: {e}"))?;
+
+    let body = response.into_body().read_to_string()?;
+    let parsed: NaverResponse = serde_json::from_str(&body)?;
+
+    let mut entry = match DictEntry::try_from(parsed) {
+        Ok(entry) => entry,
+        Err(NoWordItem) => return Ok(None),
+    };
+
+    if entry.lemma.is_empty() {
+        entry.lemma = word.to_string();
+    }
+
+    Ok(Some(entry))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_naver_response() -> NaverResponse {
+        serde_json::from_str(r#"{
+            "searchResultMap": {
+                "searchResultListMap": {
+                    "WORD": {
+                        "items": [{
+                            "handleEntry": "사랑",
+                            "meansCollector": [{
+                                "partOfSpeech": "명사",
+                                "means": [{
+                                    "value": "love",
+                                    "exampleOri": "사랑은 아름다워"
+                                }]
+                            }]
+                        }]
+                    }
+                }
+            }
+        }"#)
+        .unwrap()
+    }
+
+    fn empty_naver_response() -> NaverResponse {
+        serde_json::from_str(r#"{}"#).unwrap()
+    }
+
+    #[test]
+    fn from_word_item_constructs_dict_entry() {
+        let item = WordItem {
+            handle_entry: "사랑".to_string(),
+            means_collector: vec![MeansCollector {
+                part_of_speech: "명사".to_string(),
+                means: vec![Meaning {
+                    value: "love".to_string(),
+                    example_ori: Some("사랑은 아름다워".to_string()),
+                }],
+            }],
+        };
+        let entry = DictEntry::from(item);
+        assert_eq!(entry.lemma, "사랑");
+        assert_eq!(entry.meaning, "love");
+        assert_eq!(entry.pos, "Noun");
+        assert_eq!(entry.examples, vec!["사랑은 아름다워".to_string()]);
+    }
+
+    #[test]
+    fn try_from_naver_response_constructs_entry() {
+        let entry = DictEntry::try_from(sample_naver_response())
+            .unwrap();
+        assert_eq!(entry.lemma, "사랑");
+        assert_eq!(entry.meaning, "love");
+        assert_eq!(entry.pos, "Noun");
+        assert_eq!(entry.examples, vec!["사랑은 아름다워".to_string()]);
+    }
+
+    #[test]
+    fn try_from_empty_response_returns_err() {
+        let result = DictEntry::try_from(empty_naver_response());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn try_from_multiple_meanings_joins_with_semicolon() {
+        let response: NaverResponse = serde_json::from_str(r#"{
+            "searchResultMap": {
+                "searchResultListMap": {
+                    "WORD": {
+                        "items": [{
+                            "handleEntry": "들다",
+                            "meansCollector": [{
+                                "partOfSpeech": "동사",
+                                "means": [
+                                    { "value": "to hold" },
+                                    { "value": "to rise" }
+                                ]
+                            }]
+                        }]
+                    }
+                }
+            }
+        }"#).unwrap();
+        let entry = DictEntry::try_from(response).unwrap();
+        assert_eq!(entry.lemma, "들다");
+        assert!(entry.meaning.contains(';'));
+    }
+
+    #[test]
+    fn from_word_item_empty_meaning_returns_emdash() {
+        let item = WordItem {
+            handle_entry: "test".to_string(),
+            means_collector: vec![MeansCollector {
+                part_of_speech: String::new(),
+                means: vec![],
+            }],
+        };
+        let entry = DictEntry::from(item);
+        assert_eq!(entry.meaning, "—");
+    }
+
+    #[test]
+    fn html_tags_are_stripped_from_handle_entry() {
+        let item = WordItem {
+            handle_entry: "<b>사랑</b>".to_string(),
+            means_collector: vec![],
+        };
+        let entry = DictEntry::from(item);
+        assert_eq!(entry.lemma, "사랑");
+    }
+
+    #[test]
+    fn html_tags_are_stripped_from_meaning() {
+        let item = WordItem {
+            handle_entry: "test".to_string(),
+            means_collector: vec![MeansCollector {
+                part_of_speech: String::new(),
+                means: vec![Meaning {
+                    value: "love &amp; <b>peace</b>".to_string(),
+                    example_ori: None,
+                }],
+            }],
+        };
+        let entry = DictEntry::from(item);
+        assert_eq!(entry.meaning, "love &amp; peace");
+    }
 
     #[test]
     fn search_naver_known_word() {
@@ -124,65 +330,4 @@ mod tests {
         assert!(!entry.meaning.is_empty());
         assert!(entry.meaning.contains(';'));
     }
-}
-
-pub fn search_naver(word: &str) -> Result<Option<DictEntry>, anyhow::Error> {
-    let response = ureq::get("https://en.dict.naver.com/api3/koen/search")
-        .header("Referer", "https://en.dict.naver.com")
-        .query("m", "mobile")
-        .query("lang", "ko")
-        .query("query", word)
-        .call()
-        .map_err(|e| anyhow::anyhow!("Naver API request failed: {e}"))?;
-
-    let body = response.into_body().read_to_string()?;
-    let parsed: NaverResponse = serde_json::from_str(&body)?;
-
-    let items = parsed
-        .search_result_map
-        .and_then(|m| m.search_result_list_map)
-        .and_then(|l| l.word)
-        .map(|w| w.items)
-        .unwrap_or_default();
-
-    let item = match items.into_iter().next() {
-        Some(item) => item,
-        None => return Ok(None),
-    };
-
-    let lemma = strip_html_tags(&item.handle_entry);
-    let mut meanings: Vec<String> = Vec::new();
-    let mut examples: Vec<String> = Vec::new();
-    let mut pos = String::new();
-
-    for mc in item.means_collector {
-        if pos.is_empty() && !mc.part_of_speech.trim().is_empty() {
-            pos = normalize_pos(mc.part_of_speech.trim()).to_string();
-        }
-        for meaning in mc.means {
-            let clean = strip_html_tags(&meaning.value);
-            if !clean.is_empty() {
-                meanings.push(clean);
-            }
-            if let Some(ref ex) = meaning.example_ori {
-                let clean_ex = strip_html_tags(ex);
-                if !clean_ex.is_empty() {
-                    examples.push(clean_ex);
-                }
-            }
-        }
-    }
-
-    let meaning = if meanings.is_empty() {
-        "—".to_string()
-    } else {
-        meanings.join("; ")
-    };
-
-    Ok(Some(DictEntry {
-        lemma: if lemma.is_empty() { word.to_string() } else { lemma },
-        meaning,
-        pos,
-        examples,
-    }))
 }
