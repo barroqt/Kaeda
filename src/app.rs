@@ -259,6 +259,22 @@ pub fn handle_key(state: &mut AppState, key: KeyCode) -> Action {
     }
 }
 
+struct RawMode;
+
+impl RawMode {
+    fn new() -> anyhow::Result<Self> {
+        crossterm::terminal::enable_raw_mode()
+            .context("failed to enable raw mode")?;
+        Ok(Self)
+    }
+}
+
+impl Drop for RawMode {
+    fn drop(&mut self) {
+        let _ = crossterm::terminal::disable_raw_mode();
+    }
+}
+
 pub fn run(
     state: &mut AppState,
     conn: &Connection,
@@ -275,7 +291,7 @@ pub fn run(
         ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))
             .context("failed to create terminal")?;
 
-    crossterm::terminal::enable_raw_mode().context("failed to enable raw mode")?;
+    let _raw = RawMode::new()?;
 
     let res = loop {
         if state.needs_redraw {
@@ -331,8 +347,6 @@ pub fn run(
 
         state.update_definition(conn);
     };
-
-    crossterm::terminal::disable_raw_mode().context("failed to disable raw mode")?;
 
     res
 }

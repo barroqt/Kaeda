@@ -12,6 +12,13 @@ use ratatui::Frame;
 use crate::app::AppState;
 
 pub fn build_layout(area: Rect) -> (Rect, Rect, Rect, Rect, Rect) {
+    let width = area.width;
+
+    // Wider terminals give more space to source (45-60%) and definition (55-70%) panes
+    let w = (width as f64).min(220.0) / 220.0;
+    let source_pct = (45.0 + w * 15.0) as u32;
+    let def_pct = (55.0 + w * 15.0) as u32;
+
     let main = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(3)])
@@ -22,11 +29,11 @@ pub fn build_layout(area: Rect) -> (Rect, Rect, Rect, Rect, Rect) {
         .split(main[1]);
     let vertical = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([Constraint::Ratio(source_pct, 100), Constraint::Ratio(100 - source_pct, 100)])
         .split(main[0]);
     let horizontal = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+        .constraints([Constraint::Ratio(100 - def_pct, 100), Constraint::Ratio(def_pct, 100)])
         .split(vertical[1]);
     (vertical[0], horizontal[0], horizontal[1], bottom[0], bottom[1])
 }
