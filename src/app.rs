@@ -192,8 +192,8 @@ impl AppState {
     }
 
     pub fn update_definition(&mut self, conn: &Connection) {
-        let lemma = self.selected_candidate().map(|t| &t.lemma);
-        if lemma != self.current_definition.as_ref().map(|d| &d.lemma) {
+        let lemma = self.selected_candidate().map(|t| t.lemma.as_str());
+        if lemma != self.current_definition.as_ref().map(|d| d.lemma.as_str()) {
             self.current_definition = lemma
                 .and_then(|l| lookup_or_fetch(conn, l).ok().flatten());
             self.needs_redraw = true;
@@ -322,8 +322,8 @@ pub fn run(
                         .map(|s| s.text.clone())
                         .unwrap_or_default();
                     let entry = DeckEntry {
-                        lemma: token.lemma.clone(),
-                        surface: token.surface.clone(),
+                        lemma: token.lemma.to_string(),
+                        surface: token.surface.to_string(),
                         meaning,
                         source_sentence: source,
                         source_file: state.source_file.clone(),
@@ -335,7 +335,7 @@ pub fn run(
             }
             Action::MarkKnown => {
                 if let Some(token) = state.selected_candidate() {
-                    mark_known(conn, &token.lemma)?;
+                    mark_known(conn, token.lemma.as_str())?;
                 }
                 state.next_subtitle();
             }
@@ -388,7 +388,7 @@ mod tests {
         }];
         let state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
         let token = state.selected_candidate().unwrap();
-        assert_eq!(token.surface, "책");
+        assert_eq!(token.surface.as_str(), "책");
     }
 
     #[test]

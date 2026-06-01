@@ -52,8 +52,8 @@ fn full_session_smoke_test() {
                     .map(|s| s.text.clone())
                     .unwrap_or_default();
                 let entry = DeckEntry {
-                    lemma: token.lemma.clone(),
-                    surface: token.surface.clone(),
+                    lemma: token.lemma.to_string(),
+                    surface: token.surface.to_string(),
                     meaning,
                     source_sentence: source,
                     source_file: state.source_file.clone(),

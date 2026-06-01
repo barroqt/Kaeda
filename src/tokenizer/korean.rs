@@ -1,12 +1,57 @@
+use std::fmt;
+use std::ops::Deref;
+
 use lindera::mode::Mode;
 use lindera::segmenter::Segmenter;
 use lindera::tokenizer::Tokenizer;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Surface(String);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Lemma(String);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pos(String);
+
+macro_rules! impl_str_newtype {
+    ($name:ident) => {
+        impl $name {
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+        }
+        impl Deref for $name {
+            type Target = str;
+            fn deref(&self) -> &str {
+                &self.0
+            }
+        }
+        impl<T: Into<String>> From<T> for $name {
+            fn from(s: T) -> Self {
+                $name(s.into())
+            }
+        }
+        impl AsRef<str> for $name {
+            fn as_ref(&self) -> &str {
+                &self.0
+            }
+        }
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+    };
+}
+
+impl_str_newtype!(Surface);
+impl_str_newtype!(Lemma);
+impl_str_newtype!(Pos);
+
 #[derive(Debug, Clone)]
 pub struct Token {
-    pub surface: String,
-    pub lemma: String,
-    pub pos: String,
+    pub surface: Surface,
+    pub lemma: Lemma,
+    pub pos: Pos,
 }
 
 fn verb_lemma(surface: &str, pos: &str) -> String {
@@ -35,10 +80,10 @@ impl KoreanTokenizer {
         let result = tokens
             .iter_mut()
             .map(|t| {
-                let surface = t.surface.to_string();
+                let surface: Surface = t.surface.to_string().into();
                 let details = t.details();
-                let pos = details.first().unwrap_or(&"UNKNOWN").to_string();
-                let lemma = verb_lemma(&surface, &pos);
+                let pos: Pos = details.first().unwrap_or(&"UNKNOWN").to_string().into();
+                let lemma = Lemma(verb_lemma(surface.as_str(), pos.as_str()));
                 Token {
                     surface,
                     lemma,
@@ -60,10 +105,10 @@ pub fn tokenize(text: &str) -> anyhow::Result<Vec<Token>> {
     let result = tokens
         .iter_mut()
         .map(|t| {
-            let surface = t.surface.to_string();
+            let surface: Surface = t.surface.to_string().into();
             let details = t.details();
-            let pos = details.first().unwrap_or(&"UNKNOWN").to_string();
-            let lemma = verb_lemma(&surface, &pos);
+            let pos: Pos = details.first().unwrap_or(&"UNKNOWN").to_string().into();
+            let lemma = Lemma(verb_lemma(surface.as_str(), pos.as_str()));
             Token {
                 surface,
                 lemma,
@@ -89,7 +134,7 @@ mod tests {
     fn tokenize_extracts_lemma() {
         let tokens = tokenize("먹었어요").unwrap();
         let token = tokens.iter().find(|t| t.pos.starts_with("VV")).unwrap();
-        assert_eq!(token.lemma, "먹다");
+        assert_eq!(token.lemma.as_str(), "먹다");
     }
 
     #[test]
