@@ -54,8 +54,8 @@ pub fn build_index(conn: &Connection, tsv_path: &str) -> anyhow::Result<()> {
 }
 
 pub fn lookup(conn: &Connection, lemma: &str) -> anyhow::Result<Option<DictEntry>> {
-    let mut stmt =
-        conn.prepare_cached("SELECT lemma, meaning, pos, examples FROM dictionary WHERE lemma = ?1")?;
+    let mut stmt = conn
+        .prepare_cached("SELECT lemma, meaning, pos, examples FROM dictionary WHERE lemma = ?1")?;
 
     let mut rows = stmt.query(rusqlite::params![lemma])?;
     if let Some(row) = rows.next()? {
@@ -90,13 +90,13 @@ pub fn lookup_or_fetch(conn: &Connection, lemma: &str) -> anyhow::Result<Option<
     match api::search_naver(lemma) {
         Ok(Some(entry)) => {
             if let Err(e) = cache_entry(conn, &entry) {
-                eprintln!("Failed to cache definition for '{lemma}': {e}");
+                tracing::warn!("Failed to cache definition for '{lemma}': {e}");
             }
             Ok(Some(entry))
         }
         Ok(None) => Ok(None),
         Err(e) => {
-            eprintln!("Online lookup failed for '{lemma}': {e}");
+            tracing::warn!("Online lookup failed for '{lemma}': {e}");
             Ok(None)
         }
     }
@@ -133,8 +133,11 @@ mod tests {
     fn ensure_dict_table_creates_table_if_not_exists() {
         let conn = Connection::open_in_memory().unwrap();
         ensure_dict_table(&conn).unwrap();
-        conn.execute("INSERT INTO dictionary (lemma, meaning) VALUES ('test', 'test meaning')", [])
-            .unwrap();
+        conn.execute(
+            "INSERT INTO dictionary (lemma, meaning) VALUES ('test', 'test meaning')",
+            [],
+        )
+        .unwrap();
     }
 
     #[test]

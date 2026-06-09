@@ -1,8 +1,8 @@
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
-use ratatui::Frame;
 
 use crate::app::AppState;
 
@@ -21,10 +21,7 @@ pub fn render_source_pane(f: &mut Frame, area: Rect, state: &AppState) {
         let sub = &state.subtitles[i];
         let is_current = i == state.subtitle_cursor;
         let prefix = if is_current { "▸ " } else { "  " };
-        let styled_prefix = Span::styled(
-            prefix,
-            Style::default().fg(Color::Cyan),
-        );
+        let styled_prefix = Span::styled(prefix, Style::default().fg(Color::Cyan));
         if is_current {
             let mut spans = vec![styled_prefix];
             let text = &sub.text;
@@ -34,8 +31,11 @@ pub fn render_source_pane(f: &mut Frame, area: Rect, state: &AppState) {
                 spans.push(Span::raw(text.clone()));
             }
             lines.push(
-                Line::from(spans)
-                    .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Line::from(spans).style(
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
             );
         } else {
             lines.push(

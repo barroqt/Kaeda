@@ -100,9 +100,7 @@ impl Stats {
 }
 
 pub fn load_known_list(conn: &Connection) -> anyhow::Result<Vec<String>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT lemma FROM known_words ORDER BY lemma",
-    )?;
+    let mut stmt = conn.prepare_cached("SELECT lemma FROM known_words ORDER BY lemma")?;
     let lemmas: Vec<String> = stmt
         .query_map([], |row| row.get(0))?
         .collect::<Result<Vec<_>, _>>()?;

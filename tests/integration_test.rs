@@ -1,12 +1,12 @@
-use kaeda::app::{handle_key, Action, AppState};
+use kaeda::app::{Action, AppState, handle_key};
 use kaeda::dictionary::db::build_index;
 use kaeda::filter::FilterConfig;
 use kaeda::parser::srt::parse_srt;
-use kaeda::store::{add_to_deck, init_store, DeckEntry};
+use kaeda::store::{DeckEntry, add_to_deck, init_store};
 use kaeda::tokenizer::korean::KoreanTokenizer;
+use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::KeyCode;
-use ratatui::Terminal;
 use rusqlite::Connection;
 use std::collections::HashSet;
 
@@ -32,11 +32,7 @@ fn full_session_smoke_test() {
 
     terminal.draw(|f| state.draw(f)).unwrap();
 
-    let keys = [
-        KeyCode::Down,
-        KeyCode::Char('a'),
-        KeyCode::Char('q'),
-    ];
+    let keys = [KeyCode::Down, KeyCode::Char('a'), KeyCode::Char('q')];
 
     for key in &keys {
         let action = handle_key(&mut state, *key);

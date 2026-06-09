@@ -1,4 +1,4 @@
-use crate::dictionary::db::{lookup_or_fetch, DictEntry};
+use crate::dictionary::db::{DictEntry, lookup_or_fetch};
 use crate::filter::filter_content_tokens;
 use crate::parser::srt::Subtitle;
 use crate::tokenizer::korean::{KoreanTokenizer, Token};
@@ -11,8 +11,8 @@ use crate::ui::source_pane::render_source_pane;
 use anyhow::Context;
 use ratatui::crossterm::cursor::MoveTo;
 use ratatui::crossterm::event::{self, Event, KeyCode};
-use ratatui::crossterm::terminal::{Clear, ClearType};
 use ratatui::crossterm::execute;
+use ratatui::crossterm::terminal::{Clear, ClearType};
 
 use ratatui::Frame;
 use rusqlite::Connection;
@@ -20,7 +20,7 @@ use std::io::stdout;
 use std::time::Duration;
 
 use crate::filter::FilterConfig;
-use crate::store::{add_to_deck, init_store, mark_known, DeckEntry};
+use crate::store::{DeckEntry, add_to_deck, init_store, mark_known};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Screen {
@@ -36,14 +36,16 @@ pub struct MenuState {
     pub selected: usize,
 }
 
-impl MenuState {
-    pub fn new() -> Self {
+impl Default for MenuState {
+    fn default() -> Self {
         Self {
             options: vec!["Mine", "Stats", "Known: Add", "Known: List"],
             selected: 0,
         }
     }
+}
 
+impl MenuState {
     pub fn next(&mut self) {
         let next = self.selected.saturating_add(1);
         if next < self.options.len() {
@@ -75,16 +77,22 @@ pub struct App {
     pub known_add_input: String,
 }
 
-impl App {
-    pub fn new() -> Self {
+impl Default for App {
+    fn default() -> Self {
         Self {
             screen: Screen::Menu,
-            menu: MenuState::new(),
+            menu: MenuState::default(),
             mining: None,
             stats: None,
             known_list: None,
             known_add_input: String::new(),
         }
+    }
+}
+
+impl App {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -184,8 +192,7 @@ impl AppState {
     pub fn update_definition(&mut self, conn: &Connection) {
         let lemma = self.selected_candidate().map(|t| t.lemma.as_str());
         if lemma != self.current_definition.as_ref().map(|d| d.lemma.as_str()) {
-            self.current_definition = lemma
-                .and_then(|l| lookup_or_fetch(conn, l).ok().flatten());
+            self.current_definition = lemma.and_then(|l| lookup_or_fetch(conn, l).ok().flatten());
             self.needs_redraw = true;
         }
     }
@@ -271,8 +278,7 @@ struct RawMode;
 
 impl RawMode {
     fn new() -> anyhow::Result<Self> {
-        crossterm::terminal::enable_raw_mode()
-            .context("failed to enable raw mode")?;
+        crossterm::terminal::enable_raw_mode().context("failed to enable raw mode")?;
         Ok(Self)
     }
 }
@@ -283,13 +289,8 @@ impl Drop for RawMode {
     }
 }
 
-pub fn run(
-    state: &mut AppState,
-    conn: &Connection,
-    _config: &FilterConfig,
-) -> anyhow::Result<()> {
-    execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0))
-        .context("failed to clear terminal")?;
+pub fn run(state: &mut AppState, conn: &Connection, _config: &FilterConfig) -> anyhow::Result<()> {
+    execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0)).context("failed to clear terminal")?;
 
     init_store(conn).context("failed to init store")?;
 
@@ -301,7 +302,7 @@ pub fn run(
 
     let _raw = RawMode::new()?;
 
-    let res = loop {
+    loop {
         if state.needs_redraw {
             terminal.draw(|f| state.draw(f))?;
             state.needs_redraw = false;
@@ -338,9 +339,7 @@ pub fn run(
         }
 
         state.update_definition(conn);
-    };
-
-    res
+    }
 }
 
 #[cfg(test)]
@@ -462,8 +461,8 @@ mod tests {
 
     #[test]
     fn app_renders_without_panic() {
-        use ratatui::backend::TestBackend;
         use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
 
         let subtitles = vec![
             Subtitle {
@@ -559,36 +558,51 @@ mod tests {
     #[test]
     fn key_a_returns_add_to_deck() {
         let mut state = AppState::new(vec![], "t.srt".to_string(), &test_tokenizer());
-        assert!(matches!(handle_key(&mut state, KeyCode::Char('a')), Action::AddToDeck));
+        assert!(matches!(
+            handle_key(&mut state, KeyCode::Char('a')),
+            Action::AddToDeck
+        ));
     }
 
     #[test]
     fn key_k_returns_mark_known() {
         let mut state = AppState::new(vec![], "t.srt".to_string(), &test_tokenizer());
-        assert!(matches!(handle_key(&mut state, KeyCode::Char('k')), Action::MarkKnown));
+        assert!(matches!(
+            handle_key(&mut state, KeyCode::Char('k')),
+            Action::MarkKnown
+        ));
     }
 
     #[test]
     fn key_s_returns_skip() {
         let mut state = AppState::new(vec![], "t.srt".to_string(), &test_tokenizer());
-        assert!(matches!(handle_key(&mut state, KeyCode::Char('s')), Action::Skip));
+        assert!(matches!(
+            handle_key(&mut state, KeyCode::Char('s')),
+            Action::Skip
+        ));
     }
 
     #[test]
     fn key_q_returns_quit() {
         let mut state = AppState::new(vec![], "t.srt".to_string(), &test_tokenizer());
-        assert!(matches!(handle_key(&mut state, KeyCode::Char('q')), Action::Quit));
+        assert!(matches!(
+            handle_key(&mut state, KeyCode::Char('q')),
+            Action::Quit
+        ));
     }
 
     #[test]
     fn key_unknown_returns_none() {
         let mut state = AppState::new(vec![], "t.srt".to_string(), &test_tokenizer());
-        assert!(matches!(handle_key(&mut state, KeyCode::Char('z')), Action::None));
+        assert!(matches!(
+            handle_key(&mut state, KeyCode::Char('z')),
+            Action::None
+        ));
     }
 
     #[test]
     fn menu_next_increments_selected() {
-        let mut menu = MenuState::new();
+        let mut menu = MenuState::default();
         assert_eq!(menu.selected, 0);
         menu.next();
         assert_eq!(menu.selected, 1);
@@ -602,7 +616,7 @@ mod tests {
 
     #[test]
     fn menu_prev_at_zero_stays_zero() {
-        let mut menu = MenuState::new();
+        let mut menu = MenuState::default();
         assert_eq!(menu.selected, 0);
         menu.prev();
         assert_eq!(menu.selected, 0);
@@ -610,7 +624,7 @@ mod tests {
 
     #[test]
     fn menu_selected_screen_returns_correct_variant() {
-        let mut menu = MenuState::new();
+        let mut menu = MenuState::default();
         assert_eq!(menu.selected_screen(), Screen::Mining);
         menu.next();
         assert_eq!(menu.selected_screen(), Screen::Stats);

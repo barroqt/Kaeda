@@ -58,8 +58,8 @@ pub fn load_frequency_list(path: &str) -> anyhow::Result<HashSet<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
     use crate::tokenizer::KoreanTokenizer;
+    use std::collections::HashSet;
 
     #[test]
     fn filter_pos_removes_particles() {
@@ -67,7 +67,11 @@ mod tests {
         let tokens = tokenizer.tokenize("나는 밥을 먹었어요.").unwrap();
         let filtered = filter_content_tokens(tokens);
         assert!(filtered.iter().all(|t| !t.pos.starts_with('J')));
-        assert!(filtered.iter().all(|t| !matches!(t.pos.as_str(), "SF" | "SP" | "SS")));
+        assert!(
+            filtered
+                .iter()
+                .all(|t| !matches!(t.pos.as_str(), "SF" | "SP" | "SS"))
+        );
         assert!(filtered.len() > 0);
     }
 

@@ -1,7 +1,7 @@
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
-use ratatui::Frame;
 
 use crate::app::MenuState;
 
@@ -54,22 +54,23 @@ pub fn render_menu(f: &mut Frame, area: Rect, state: &MenuState) {
 
     let hint = Paragraph::new("↑↓ navigate   Enter select   q quit")
         .style(Style::default().fg(Color::DarkGray));
-    f.render_widget(hint, Rect::new(menu_area.x, menu_area.bottom(), menu_area.width, 1));
+    f.render_widget(
+        hint,
+        Rect::new(menu_area.x, menu_area.bottom(), menu_area.width, 1),
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     #[test]
     fn menu_renders_without_panic() {
-        let menu = MenuState::new();
+        let menu = MenuState::default();
         let backend = TestBackend::new(40, 20);
         let mut terminal = Terminal::new(backend).unwrap();
-        terminal
-            .draw(|f| render_menu(f, f.area(), &menu))
-            .unwrap();
+        terminal.draw(|f| render_menu(f, f.area(), &menu)).unwrap();
     }
 }

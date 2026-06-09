@@ -3,11 +3,11 @@ pub mod definition_pane;
 pub mod menu;
 pub mod source_pane;
 
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
-use ratatui::Frame;
 
 use crate::app::AppState;
 
@@ -29,23 +29,32 @@ pub fn build_layout(area: Rect) -> (Rect, Rect, Rect, Rect, Rect) {
         .split(main[1]);
     let vertical = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Ratio(source_pct, 100), Constraint::Ratio(100 - source_pct, 100)])
+        .constraints([
+            Constraint::Ratio(source_pct, 100),
+            Constraint::Ratio(100 - source_pct, 100),
+        ])
         .split(main[0]);
     let horizontal = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Ratio(100 - def_pct, 100), Constraint::Ratio(def_pct, 100)])
+        .constraints([
+            Constraint::Ratio(100 - def_pct, 100),
+            Constraint::Ratio(def_pct, 100),
+        ])
         .split(vertical[1]);
-    (vertical[0], horizontal[0], horizontal[1], bottom[0], bottom[1])
+    (
+        vertical[0],
+        horizontal[0],
+        horizontal[1],
+        bottom[0],
+        bottom[1],
+    )
 }
 
 pub fn render_status_bar(f: &mut Frame, area: Rect, state: &AppState) {
     let total = state.subtitles.len();
     let current = state.subtitle_cursor.saturating_add(1);
     let text = Line::from(vec![
-        Span::styled(
-            &state.source_file,
-            Style::default().fg(Color::Cyan),
-        ),
+        Span::styled(&state.source_file, Style::default().fg(Color::Cyan)),
         Span::raw("  "),
         Span::styled(
             format!("[{}/{}]", current, total),

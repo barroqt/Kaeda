@@ -3,12 +3,13 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use rusqlite::Connection;
+use tracing_subscriber::EnvFilter;
 
 use kaeda::app;
 use kaeda::dictionary;
 use kaeda::filter::{FilterConfig, load_frequency_list, load_known_set};
 use kaeda::parser::srt::parse_srt;
-use kaeda::store::{init_store, add_known_word, list_known_words, Stats};
+use kaeda::store::{Stats, add_known_word, init_store, list_known_words};
 
 #[derive(Parser)]
 #[command(name = "kaeda", about = "Korean vocabulary mining TUI")]
@@ -45,6 +46,11 @@ enum KnownCommands {
 }
 
 fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .init();
+
     let cli = Cli::parse();
     match cli.command {
         Commands::Mine { file } => cmd_mine(file),
@@ -84,20 +90,19 @@ fn cmd_mine(file: PathBuf) -> anyhow::Result<()> {
             .unwrap_or(true);
 
         if needs_build {
-            eprintln!("Building dictionary index…");
+            tracing::info!("Building dictionary index…");
             dictionary::db::build_index(&conn, dict_tsv.to_string_lossy().as_ref())?;
             let count: i64 = conn
                 .query_row("SELECT COUNT(*) FROM dictionary", [], |row| row.get(0))
                 .unwrap_or(0);
-            eprintln!("Dictionary ready ({count} entries)");
+            tracing::info!("Dictionary ready ({count} entries)");
         }
     } else {
         dictionary::db::ensure_dict_table(&conn)?;
-        eprintln!("No dictionary.tsv found — using online lookups with local caching");
+        tracing::info!("No dictionary.tsv found — using online lookups with local caching");
     }
 
-    let frequency_set =
-        load_frequency_list(&data_dir().join("frequency.txt").to_string_lossy())?;
+    let frequency_set = load_frequency_list(&data_dir().join("frequency.txt").to_string_lossy())?;
     let known_set = load_known_set(&data_dir().join("known.txt").to_string_lossy())?;
     let config = FilterConfig {
         frequency_set,

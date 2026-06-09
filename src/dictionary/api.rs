@@ -172,7 +172,8 @@ mod tests {
     use super::*;
 
     fn sample_naver_response() -> NaverResponse {
-        serde_json::from_str(r#"{
+        serde_json::from_str(
+            r#"{
             "searchResultMap": {
                 "searchResultListMap": {
                     "WORD": {
@@ -189,7 +190,8 @@ mod tests {
                     }
                 }
             }
-        }"#)
+        }"#,
+        )
         .unwrap()
     }
 
@@ -218,8 +220,7 @@ mod tests {
 
     #[test]
     fn try_from_naver_response_constructs_entry() {
-        let entry = DictEntry::try_from(sample_naver_response())
-            .unwrap();
+        let entry = DictEntry::try_from(sample_naver_response()).unwrap();
         assert_eq!(entry.lemma, "사랑");
         assert_eq!(entry.meaning, "love");
         assert_eq!(entry.pos, "Noun");
@@ -234,7 +235,8 @@ mod tests {
 
     #[test]
     fn try_from_multiple_meanings_joins_with_semicolon() {
-        let response: NaverResponse = serde_json::from_str(r#"{
+        let response: NaverResponse = serde_json::from_str(
+            r#"{
             "searchResultMap": {
                 "searchResultListMap": {
                     "WORD": {
@@ -251,7 +253,9 @@ mod tests {
                     }
                 }
             }
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         let entry = DictEntry::try_from(response).unwrap();
         assert_eq!(entry.lemma, "들다");
         assert!(entry.meaning.contains(';'));
