@@ -5,19 +5,19 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::Context;
+use ratatui::Frame;
 use ratatui::crossterm::cursor::MoveTo;
 use ratatui::crossterm::event::{self, Event, KeyCode};
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{Clear, ClearType};
-use ratatui::Frame;
 use rusqlite::Connection;
 
 use crate::dictionary::api;
-use crate::dictionary::db::{cache_entry, DictEntry, lookup};
-use crate::filter::filter_content_tokens;
+use crate::dictionary::db::{DictEntry, cache_entry, lookup};
 use crate::filter::FilterConfig;
+use crate::filter::filter_content_tokens;
 use crate::parser::srt::Subtitle;
-use crate::store::{add_to_deck, init_store, mark_known, DeckEntry};
+use crate::store::{DeckEntry, add_to_deck, init_store, mark_known};
 use crate::tokenizer::korean::{KoreanTokenizer, Token};
 use crate::ui::build_layout;
 use crate::ui::candidate_pane::render_candidate_pane;
@@ -209,7 +209,9 @@ impl AppState {
     }
 
     pub fn update_definition(&mut self, conn: &Connection) {
-        let lemma = self.selected_candidate().map(|t| t.lemma.as_str().to_string());
+        let lemma = self
+            .selected_candidate()
+            .map(|t| t.lemma.as_str().to_string());
 
         if lemma == self.current_lemma {
             return;
