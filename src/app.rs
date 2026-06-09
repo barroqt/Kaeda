@@ -13,7 +13,7 @@ use ratatui::crossterm::cursor::MoveTo;
 use ratatui::crossterm::event::{self, Event, KeyCode};
 use ratatui::crossterm::terminal::{Clear, ClearType};
 use ratatui::crossterm::execute;
-use ratatui::layout::Rect;
+
 use ratatui::Frame;
 use rusqlite::Connection;
 use std::io::stdout;
@@ -108,8 +108,6 @@ pub struct AppState {
     pub deck_count: usize,
     pub current_definition: Option<DictEntry>,
     pub needs_redraw: bool,
-    cached_layout_area: Option<Rect>,
-    cached_layout: Option<(Rect, Rect, Rect, Rect, Rect)>,
 }
 
 pub enum Pane {
@@ -120,15 +118,7 @@ pub enum Pane {
 
 impl AppState {
     pub fn draw(&mut self, f: &mut Frame) {
-        let area = f.area();
-        let (src, cand, def, status, help) = if self.cached_layout_area == Some(area) {
-            self.cached_layout.unwrap()
-        } else {
-            let layout = build_layout(area);
-            self.cached_layout_area = Some(area);
-            self.cached_layout = Some(layout);
-            layout
-        };
+        let (src, cand, def, status, help) = build_layout(f.area());
         render_source_pane(f, src, self);
         render_candidate_pane(f, cand, self);
         render_definition_pane(f, def, self.current_definition.as_ref());
@@ -241,8 +231,6 @@ impl AppState {
             deck_count: 0,
             current_definition: None,
             needs_redraw: true,
-            cached_layout_area: None,
-            cached_layout: None,
         };
         state.recompute_candidates();
         state

@@ -42,10 +42,6 @@ pub fn parse_srt(path: &str) -> anyhow::Result<Vec<Subtitle>> {
             continue;
         }
 
-        println!("INDEX ====> {}", index);
-        println!("TIMESTAMP ====> {}", timestamp);
-        println!("TEXT ====> {}", text);
-
         subtitles.push(Subtitle {
             index,
             timestamp: timestamp.to_string(),

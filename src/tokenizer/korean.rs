@@ -54,8 +54,21 @@ pub struct Token {
     pub pos: Pos,
 }
 
-fn verb_lemma(surface: &str, pos: &str) -> String {
+fn verb_lemma(surface: &str, pos: &str, details: &[&str]) -> String {
     if pos.starts_with('V') {
+        // Try to extract the verb stem from the expression field (details[7]).
+        // The expression field has format: stem/POS/*+ending/POS/*
+        // For irregular verbs this gives the correct stem (e.g. 걸→걷, not 걸).
+        if details.len() > 7 {
+            let expression = details[7];
+            if expression != "*"
+                && let Some(stem) = expression.split('/').next()
+                && !stem.is_empty()
+            {
+                return format!("{}다", stem);
+            }
+        }
+        // Fallback: surface + 다 heuristic for regular verbs
         format!("{}다", surface)
     } else {
         surface.to_string()
@@ -83,7 +96,7 @@ impl KoreanTokenizer {
                 let surface: Surface = t.surface.to_string().into();
                 let details = t.details();
                 let pos: Pos = details.first().unwrap_or(&"UNKNOWN").to_string().into();
-                let lemma = Lemma(verb_lemma(surface.as_str(), pos.as_str()));
+                let lemma = Lemma(verb_lemma(surface.as_str(), pos.as_str(), &details));
                 Token {
                     surface,
                     lemma,
@@ -108,7 +121,7 @@ pub fn tokenize(text: &str) -> anyhow::Result<Vec<Token>> {
             let surface: Surface = t.surface.to_string().into();
             let details = t.details();
             let pos: Pos = details.first().unwrap_or(&"UNKNOWN").to_string().into();
-            let lemma = Lemma(verb_lemma(surface.as_str(), pos.as_str()));
+            let lemma = Lemma(verb_lemma(surface.as_str(), pos.as_str(), &details));
             Token {
                 surface,
                 lemma,
