@@ -8,7 +8,7 @@ use kaeda::app;
 use kaeda::dictionary;
 use kaeda::filter::{FilterConfig, load_frequency_list, load_known_list};
 use kaeda::parser::srt::parse_srt;
-use kaeda::store::{init_store, get_stats, add_known_word, list_known_words};
+use kaeda::store::{init_store, add_known_word, list_known_words, Stats};
 
 #[derive(Parser)]
 #[command(name = "kaeda", about = "Korean vocabulary mining TUI")]
@@ -113,7 +113,7 @@ fn cmd_mine(file: PathBuf) -> anyhow::Result<()> {
 
 fn cmd_stats() -> anyhow::Result<()> {
     let conn = open_db()?;
-    let stats = get_stats(&conn)?;
+    let stats = Stats::load(&conn)?;
 
     println!("{:<20} {:>8}", "Metric", "Value");
     println!("{:<20} {:>8}", "──────", "─────");
