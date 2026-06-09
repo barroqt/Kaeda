@@ -1,6 +1,23 @@
-use crate::dictionary::db::{DictEntry, lookup_or_fetch};
+use std::collections::HashMap;
+use std::io::stdout;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
+
+use anyhow::Context;
+use ratatui::crossterm::cursor::MoveTo;
+use ratatui::crossterm::event::{self, Event, KeyCode};
+use ratatui::crossterm::execute;
+use ratatui::crossterm::terminal::{Clear, ClearType};
+use ratatui::Frame;
+use rusqlite::Connection;
+
+use crate::dictionary::api;
+use crate::dictionary::db::{cache_entry, DictEntry, lookup};
 use crate::filter::filter_content_tokens;
+use crate::filter::FilterConfig;
 use crate::parser::srt::Subtitle;
+use crate::store::{add_to_deck, init_store, mark_known, DeckEntry};
 use crate::tokenizer::korean::{KoreanTokenizer, Token};
 use crate::ui::build_layout;
 use crate::ui::candidate_pane::render_candidate_pane;
@@ -8,19 +25,6 @@ use crate::ui::definition_pane::render_definition_pane;
 use crate::ui::render_help_bar;
 use crate::ui::render_status_bar;
 use crate::ui::source_pane::render_source_pane;
-use anyhow::Context;
-use ratatui::crossterm::cursor::MoveTo;
-use ratatui::crossterm::event::{self, Event, KeyCode};
-use ratatui::crossterm::execute;
-use ratatui::crossterm::terminal::{Clear, ClearType};
-
-use ratatui::Frame;
-use rusqlite::Connection;
-use std::io::stdout;
-use std::time::Duration;
-
-use crate::filter::FilterConfig;
-use crate::store::{DeckEntry, add_to_deck, init_store, mark_known};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Screen {
@@ -96,6 +100,11 @@ impl App {
     }
 }
 
+enum DefinitionEvent {
+    Found(String, DictEntry),
+    NotFound(String),
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Action {
     None,
@@ -114,8 +123,13 @@ pub struct AppState {
     pub active_pane: Pane,
     pub source_file: String,
     pub deck_count: usize,
+    pub current_lemma: Option<String>,
     pub current_definition: Option<DictEntry>,
     pub needs_redraw: bool,
+
+    definition_cache: HashMap<String, DictEntry>,
+    definition_tx: mpsc::Sender<DefinitionEvent>,
+    definition_rx: mpsc::Receiver<DefinitionEvent>,
 }
 
 pub enum Pane {
@@ -129,7 +143,12 @@ impl AppState {
         let (src, cand, def, status, help) = build_layout(f.area());
         render_source_pane(f, src, self);
         render_candidate_pane(f, cand, self);
-        render_definition_pane(f, def, self.current_definition.as_ref());
+        render_definition_pane(
+            f,
+            def,
+            self.current_lemma.as_deref(),
+            self.current_definition.as_ref(),
+        );
         render_status_bar(f, status, self);
         render_help_bar(f, help);
     }
@@ -190,10 +209,87 @@ impl AppState {
     }
 
     pub fn update_definition(&mut self, conn: &Connection) {
-        let lemma = self.selected_candidate().map(|t| t.lemma.as_str());
-        if lemma != self.current_definition.as_ref().map(|d| d.lemma.as_str()) {
-            self.current_definition = lemma.and_then(|l| lookup_or_fetch(conn, l).ok().flatten());
-            self.needs_redraw = true;
+        let lemma = self.selected_candidate().map(|t| t.lemma.as_str().to_string());
+
+        if lemma == self.current_lemma {
+            return;
+        }
+
+        match lemma {
+            Some(lemma) => {
+                // In-memory cache (fast, no I/O)
+                if let Some(entry) = self.definition_cache.get(&lemma) {
+                    self.current_lemma = Some(lemma);
+                    self.current_definition = Some(entry.clone());
+                    self.needs_redraw = true;
+                    return;
+                }
+
+                // Local SQLite lookup (fast, synchronous)
+                if let Ok(Some(entry)) = lookup(conn, &lemma) {
+                    self.current_lemma = Some(lemma.clone());
+                    self.current_definition = Some(entry.clone());
+                    self.definition_cache.insert(lemma, entry);
+                    self.needs_redraw = true;
+                    return;
+                }
+
+                // Miss — spawn a background thread for the HTTP call
+                self.current_lemma = Some(lemma.clone());
+                self.current_definition = None;
+                self.needs_redraw = true;
+
+                let tx = self.definition_tx.clone();
+                thread::spawn(move || {
+                    let result = api::search_naver(&lemma);
+                    let event = match result {
+                        Ok(Some(entry)) => DefinitionEvent::Found(lemma, entry),
+                        _ => DefinitionEvent::NotFound(lemma),
+                    };
+                    let _ = tx.send(event);
+                });
+            }
+            None => {
+                self.current_lemma = None;
+                self.current_definition = None;
+                self.needs_redraw = true;
+            }
+        }
+    }
+
+    fn check_definition_results(&mut self, conn: &Connection) {
+        loop {
+            let event = match self.definition_rx.try_recv() {
+                Ok(event) => event,
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => break,
+            };
+
+            match event {
+                DefinitionEvent::Found(lemma, entry) => {
+                    self.definition_cache.insert(lemma.clone(), entry.clone());
+                    if self.current_lemma.as_deref() == Some(&lemma) {
+                        self.current_definition = Some(entry.clone());
+                        self.needs_redraw = true;
+                    }
+                    if let Err(e) = cache_entry(conn, &entry) {
+                        tracing::warn!("Failed to cache definition for '{lemma}': {e}");
+                    }
+                }
+                DefinitionEvent::NotFound(lemma) => {
+                    let placeholder = DictEntry {
+                        lemma: lemma.clone(),
+                        meaning: "—".to_string(),
+                        pos: String::new(),
+                        examples: vec![],
+                    };
+                    self.definition_cache.insert(lemma.clone(), placeholder);
+                    if self.current_lemma.as_deref() == Some(&lemma) {
+                        self.current_definition = self.definition_cache.get(&lemma).cloned();
+                        self.needs_redraw = true;
+                    }
+                }
+            }
         }
     }
 
@@ -227,6 +323,7 @@ impl AppState {
                     .unwrap_or_default()
             })
             .collect();
+        let (definition_tx, definition_rx) = mpsc::channel();
         let mut state = AppState {
             subtitles,
             pre_tokenized,
@@ -236,8 +333,12 @@ impl AppState {
             active_pane: Pane::Candidates,
             source_file,
             deck_count: 0,
+            current_lemma: None,
             current_definition: None,
             needs_redraw: true,
+            definition_cache: HashMap::new(),
+            definition_tx,
+            definition_rx,
         };
         state.recompute_candidates();
         state
@@ -303,6 +404,8 @@ pub fn run(state: &mut AppState, conn: &Connection, _config: &FilterConfig) -> a
     let _raw = RawMode::new()?;
 
     loop {
+        state.check_definition_results(conn);
+
         if state.needs_redraw {
             terminal.draw(|f| state.draw(f))?;
             state.needs_redraw = false;

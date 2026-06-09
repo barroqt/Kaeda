@@ -5,6 +5,7 @@ use rusqlite::Connection;
 
 use crate::dictionary::api;
 
+#[derive(Debug, Clone)]
 pub struct DictEntry {
     pub lemma: String,
     pub meaning: String,
@@ -72,7 +73,7 @@ pub fn lookup(conn: &Connection, lemma: &str) -> anyhow::Result<Option<DictEntry
     }
 }
 
-fn cache_entry(conn: &Connection, entry: &DictEntry) -> anyhow::Result<()> {
+pub(crate) fn cache_entry(conn: &Connection, entry: &DictEntry) -> anyhow::Result<()> {
     ensure_dict_table(conn)?;
     let examples = serde_json::to_string(&entry.examples)?;
     conn.execute(
