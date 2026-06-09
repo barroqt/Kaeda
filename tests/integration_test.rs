@@ -1,6 +1,5 @@
 use kaeda::app::{Action, AppState, handle_key};
 use kaeda::dictionary::db::build_index;
-use kaeda::filter::FilterConfig;
 use kaeda::parser::srt::parse_srt;
 use kaeda::store::{DeckEntry, add_to_deck, init_store};
 use kaeda::tokenizer::korean::KoreanTokenizer;
@@ -8,7 +7,6 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::KeyCode;
 use rusqlite::Connection;
-use std::collections::HashSet;
 
 #[test]
 fn full_session_smoke_test() {
@@ -21,11 +19,6 @@ fn full_session_smoke_test() {
     init_store(&conn).unwrap();
 
     state.update_definition(&conn);
-
-    let config = FilterConfig {
-        frequency_set: HashSet::new(),
-        known_set: HashSet::new(),
-    };
 
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).unwrap();
