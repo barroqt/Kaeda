@@ -1,20 +1,15 @@
 use serde::Deserialize;
 
 use crate::dictionary::db::DictEntry;
+use crate::util::strip_html_tags;
 
-fn strip_html_tags(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut in_tag = false;
-    for ch in s.chars() {
-        match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => out.push(ch),
-            _ => {}
-        }
-    }
-    let trimmed: String = out.chars().filter(|c| !c.is_control()).collect();
-    trimmed.trim().to_string()
+fn clean_html(s: &str) -> String {
+    strip_html_tags(s)
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 fn normalize_pos(korean: &str) -> &str {
@@ -96,7 +91,7 @@ struct NoWordItem;
 
 impl From<WordItem> for DictEntry {
     fn from(item: WordItem) -> Self {
-        let lemma = strip_html_tags(&item.handle_entry);
+        let lemma = clean_html(&item.handle_entry);
         let mut meanings: Vec<String> = Vec::new();
         let mut examples: Vec<String> = Vec::new();
         let mut pos = String::new();
@@ -106,12 +101,12 @@ impl From<WordItem> for DictEntry {
                 pos = normalize_pos(mc.part_of_speech.trim()).to_string();
             }
             for meaning in mc.means {
-                let clean = strip_html_tags(&meaning.value);
+                let clean = clean_html(&meaning.value);
                 if !clean.is_empty() {
                     meanings.push(clean);
                 }
                 if let Some(ref ex) = meaning.example_ori {
-                    let clean_ex = strip_html_tags(ex);
+                    let clean_ex = clean_html(ex);
                     if !clean_ex.is_empty() {
                         examples.push(clean_ex);
                     }

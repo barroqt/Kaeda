@@ -6,7 +6,7 @@ use rusqlite::Connection;
 
 use kaeda::app;
 use kaeda::dictionary;
-use kaeda::filter::{FilterConfig, load_frequency_list, load_known_list};
+use kaeda::filter::{FilterConfig, load_frequency_list, load_known_set};
 use kaeda::parser::srt::parse_srt;
 use kaeda::store::{init_store, add_known_word, list_known_words, Stats};
 
@@ -98,7 +98,7 @@ fn cmd_mine(file: PathBuf) -> anyhow::Result<()> {
 
     let frequency_set =
         load_frequency_list(&data_dir().join("frequency.txt").to_string_lossy())?;
-    let known_set = load_known_list(&data_dir().join("known.txt").to_string_lossy())?;
+    let known_set = load_known_set(&data_dir().join("known.txt").to_string_lossy())?;
     let config = FilterConfig {
         frequency_set,
         known_set,

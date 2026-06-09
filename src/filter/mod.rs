@@ -27,7 +27,7 @@ pub fn is_candidate(config: &FilterConfig, lemma: &str) -> bool {
     !config.frequency_set.contains(lemma) && !config.known_set.contains(lemma)
 }
 
-pub fn load_known_list(path: &str) -> anyhow::Result<HashSet<String>> {
+pub fn load_known_set(path: &str) -> anyhow::Result<HashSet<String>> {
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(HashSet::new()),
@@ -112,10 +112,10 @@ mod tests {
     }
 
     #[test]
-    fn load_known_list_from_file() {
+    fn load_known_set_from_file() {
         let path = std::env::temp_dir().join("test_known_list.txt");
         std::fs::write(&path, "먹다\n보다\n가다\n").unwrap();
-        let set = load_known_list(path.to_str().unwrap()).unwrap();
+        let set = load_known_set(path.to_str().unwrap()).unwrap();
         std::fs::remove_file(&path).unwrap();
         assert!(set.contains("먹다"));
         assert!(set.contains("보다"));
