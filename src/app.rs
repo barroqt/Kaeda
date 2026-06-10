@@ -12,19 +12,20 @@ use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{Clear, ClearType};
 use rusqlite::Connection;
 
-use crate::dictionary::api;
-use crate::dictionary::db::{DictEntry, cache_entry, lookup};
-use crate::filter::FilterConfig;
-use crate::filter::filter_content_tokens;
-use crate::parser::srt::Subtitle;
-use crate::store::{DeckEntry, add_to_deck, init_store, mark_known};
-use crate::tokenizer::korean::{KoreanTokenizer, Token};
 use crate::ui::build_layout;
 use crate::ui::candidate_pane::render_candidate_pane;
 use crate::ui::definition_pane::render_definition_pane;
 use crate::ui::render_help_bar;
 use crate::ui::render_status_bar;
 use crate::ui::source_pane::render_source_pane;
+
+use kaeda_core::dictionary::api;
+use kaeda_core::dictionary::db::{DictEntry, cache_entry, lookup};
+use kaeda_core::filter::FilterConfig;
+use kaeda_core::filter::filter_content_tokens;
+use kaeda_core::parser::srt::Subtitle;
+use kaeda_core::store::{DeckEntry, add_to_deck, init_store, mark_known};
+use kaeda_core::tokenizer::korean::{KoreanTokenizer, Token};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Screen {

@@ -1,0 +1,15 @@
+[package]
+name = "kaeda-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tracing = "0.1"
+chrono = "0.4"
+lindera = "3.0.7"
+lindera-ko-dic = { version = "3.0.7", features = ["embed-ko-dic"] }
+rusqlite = "0.39.0"
+ureq = "3"

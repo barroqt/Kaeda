@@ -43,28 +43,33 @@ pub fn parse_srt(path: &str) -> anyhow::Result<Vec<Subtitle>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixture_path;
 
     #[test]
     fn parse_returns_correct_count() {
-        let subtitles = parse_srt("tests/fixtures/sample.srt").unwrap();
+        let path = fixture_path("sample.srt");
+        let subtitles = parse_srt(&path.to_string_lossy()).unwrap();
         assert_eq!(subtitles.len(), 5);
     }
 
     #[test]
     fn parse_preserves_timestamp() {
-        let subtitles = parse_srt("tests/fixtures/sample.srt").unwrap();
+        let path = fixture_path("sample.srt");
+        let subtitles = parse_srt(&path.to_string_lossy()).unwrap();
         assert_eq!(subtitles[0].timestamp, "00:00:01,000 --> 00:00:04,000");
     }
 
     #[test]
     fn parse_strips_html_tags() {
-        let subtitles = parse_srt("tests/fixtures/sample.srt").unwrap();
+        let path = fixture_path("sample.srt");
+        let subtitles = parse_srt(&path.to_string_lossy()).unwrap();
         assert_eq!(subtitles[0].text, "안녕하세요 반갑습니다.");
     }
 
     #[test]
     fn parse_skips_malformed_blocks() {
-        let subtitles = parse_srt("tests/fixtures/sample_malformed.srt").unwrap();
+        let path = fixture_path("sample_malformed.srt");
+        let subtitles = parse_srt(&path.to_string_lossy()).unwrap();
         assert_eq!(subtitles.len(), 2);
         assert_eq!(subtitles[0].index, 1);
         assert_eq!(subtitles[1].index, 4);
@@ -72,7 +77,8 @@ mod tests {
 
     #[test]
     fn parse_empty_file_returns_empty() {
-        let subtitles = parse_srt("tests/fixtures/empty.srt").unwrap();
+        let path = fixture_path("empty.srt");
+        let subtitles = parse_srt(&path.to_string_lossy()).unwrap();
         assert!(subtitles.is_empty());
     }
 }

@@ -111,7 +111,8 @@ mod tests {
 
     #[test]
     fn load_frequency_list_from_file() {
-        let set = load_frequency_list("tests/fixtures/frequency_top10.txt").unwrap();
+        let path = crate::fixture_path("frequency_top10.txt");
+        let set = load_frequency_list(&path.to_string_lossy()).unwrap();
         assert!(set.contains("하다"));
     }
 

@@ -1,0 +1,25 @@
+{
+  "productName": "Kaeda",
+  "version": "0.1.0",
+  "identifier": "com.kaeda.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "",
+    "beforeBuildCommand": ""
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Kaeda",
+        "width": 800,
+        "height": 600
+      }
+    ]
+  },
+  "bundle": {
+    "icon": [
+      "icons/kaeda_logo.png"
+    ]
+  }
+}

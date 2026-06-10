@@ -1,0 +1,16 @@
+pub mod dictionary;
+pub mod filter;
+pub mod parser;
+pub mod store;
+pub mod tokenizer;
+pub mod util;
+
+#[cfg(test)]
+pub(crate) fn fixture_path(name: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join(name)
+}

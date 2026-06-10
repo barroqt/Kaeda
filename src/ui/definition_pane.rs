@@ -4,7 +4,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use crate::dictionary::db::DictEntry;
+use kaeda_core::dictionary::db::DictEntry;
 
 pub fn render_definition_pane(
     f: &mut Frame,

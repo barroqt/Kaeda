@@ -1,8 +1,8 @@
 use kaeda::app::{Action, AppState, handle_key};
-use kaeda::dictionary::db::build_index;
-use kaeda::parser::srt::parse_srt;
-use kaeda::store::{DeckEntry, add_to_deck, init_store};
-use kaeda::tokenizer::korean::KoreanTokenizer;
+use kaeda_core::dictionary::db::build_index;
+use kaeda_core::parser::srt::parse_srt;
+use kaeda_core::store::{DeckEntry, add_to_deck, init_store};
+use kaeda_core::tokenizer::korean::KoreanTokenizer;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::KeyCode;

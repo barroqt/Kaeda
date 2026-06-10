@@ -1,9 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["core", "app/src-tauri"]
+default-members = ["."]
+
 [package]
 name = "kaeda"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+kaeda-core = { path = "core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
@@ -13,7 +19,4 @@ clap = { version = "4", features = ["derive"] }
 chrono = "0.4"
 ratatui = "0.30.0"
 crossterm = "0.29.0"
-lindera = "3.0.7"
-lindera-ko-dic = { version = "3.0.7", features = ["embed-ko-dic"] }
 rusqlite = "0.39.0"
-ureq = "3"

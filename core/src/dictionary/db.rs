@@ -73,7 +73,7 @@ pub fn lookup(conn: &Connection, lemma: &str) -> anyhow::Result<Option<DictEntry
     }
 }
 
-pub(crate) fn cache_entry(conn: &Connection, entry: &DictEntry) -> anyhow::Result<()> {
+pub fn cache_entry(conn: &Connection, entry: &DictEntry) -> anyhow::Result<()> {
     ensure_dict_table(conn)?;
     let examples = serde_json::to_string(&entry.examples)?;
     conn.execute(
@@ -106,11 +106,13 @@ pub fn lookup_or_fetch(conn: &Connection, lemma: &str) -> anyhow::Result<Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixture_path;
 
     #[test]
     fn lookup_known_lemma() {
         let conn = Connection::open_in_memory().unwrap();
-        build_index(&conn, "tests/fixtures/dict_sample.tsv").unwrap();
+        let path = fixture_path("dict_sample.tsv");
+        build_index(&conn, &path.to_string_lossy()).unwrap();
         let entry = lookup(&conn, "먹다").unwrap();
         assert!(entry.is_some());
     }
@@ -118,7 +120,8 @@ mod tests {
     #[test]
     fn lookup_unknown_lemma_returns_none() {
         let conn = Connection::open_in_memory().unwrap();
-        build_index(&conn, "tests/fixtures/dict_sample.tsv").unwrap();
+        let path = fixture_path("dict_sample.tsv");
+        build_index(&conn, &path.to_string_lossy()).unwrap();
         let entry = lookup(&conn, "zzznonsense").unwrap();
         assert!(entry.is_none());
     }
@@ -126,8 +129,9 @@ mod tests {
     #[test]
     fn build_index_twice_does_not_error() {
         let conn = Connection::open_in_memory().unwrap();
-        build_index(&conn, "tests/fixtures/dict_sample.tsv").unwrap();
-        build_index(&conn, "tests/fixtures/dict_sample.tsv").unwrap();
+        let path = fixture_path("dict_sample.tsv");
+        build_index(&conn, &path.to_string_lossy()).unwrap();
+        build_index(&conn, &path.to_string_lossy()).unwrap();
     }
 
     #[test]
@@ -144,7 +148,8 @@ mod tests {
     #[test]
     fn lookup_or_fetch_falls_back_to_seed() {
         let conn = Connection::open_in_memory().unwrap();
-        build_index(&conn, "tests/fixtures/dict_sample.tsv").unwrap();
+        let path = fixture_path("dict_sample.tsv");
+        build_index(&conn, &path.to_string_lossy()).unwrap();
         let entry = lookup_or_fetch(&conn, "먹다").unwrap();
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().meaning, "to eat");
