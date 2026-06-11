@@ -10,10 +10,21 @@ function getInitialDark() {
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
+function splitWords(text) {
+  return text.split(/(\s+)/).map((t, i) => ({
+    text: t,
+    key: i,
+    isSpace: /^\s+$/.test(t),
+  }));
+}
+
 export default function App() {
   const [subtitles, setSubtitles] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [dark, setDark] = useState(getInitialDark);
+  const [selectedTarget, setSelectedTarget] = useState("");
+  const [explanation, setExplanation] = useState("");
+  const [savedCard, setSavedCard] = useState(null);
   const navigateRef = useRef(null);
 
   useEffect(() => {
@@ -35,6 +46,12 @@ export default function App() {
   useEffect(() => {
     loadSubtitles();
   }, [loadSubtitles]);
+
+  useEffect(() => {
+    setSelectedTarget("");
+    setExplanation("");
+    setSavedCard(null);
+  }, [currentIndex]);
 
   async function startSession() {
     const srtPath = await open({
@@ -75,6 +92,20 @@ export default function App() {
     }
   }
 
+  async function handleSaveCard() {
+    if (!selectedTarget.trim()) return;
+    try {
+      const card = await invoke("save_card", {
+        target: selectedTarget.trim(),
+        explanation,
+      });
+      setSavedCard(card);
+      setExplanation("");
+    } catch (err) {
+      alert(`Error: ${err}`);
+    }
+  }
+
   navigateRef.current = navigate;
 
   useEffect(() => {
@@ -85,6 +116,9 @@ export default function App() {
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         navigateRef.current(-1);
+      } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        handleSaveCard();
       }
     }
     document.addEventListener("keydown", handleKey);
@@ -142,6 +176,64 @@ export default function App() {
           </>
         )}
       </main>
+      {current && (
+        <aside id="right-panel">
+          <h2>New Card</h2>
+
+          <div className="card-field">
+            <label>Sentence</label>
+            <div className="card-sentence">{current.text}</div>
+          </div>
+
+          <div className="card-field">
+            <label>Target Word</label>
+            <div className="word-tokens">
+              {splitWords(current.text).map((t) =>
+                t.isSpace ? (
+                  <span key={t.key} className="word-space">
+                    {" "}
+                  </span>
+                ) : (
+                  <span
+                    key={t.key}
+                    className={
+                      "word-token" +
+                      (selectedTarget === t.text ? " selected" : "")
+                    }
+                    onClick={() => setSelectedTarget(t.text)}
+                  >
+                    {t.text}
+                  </span>
+                ),
+              )}
+            </div>
+          </div>
+
+          <div className="card-field">
+            <label>Explanation</label>
+            <textarea
+              value={explanation}
+              onChange={(e) => setExplanation(e.target.value)}
+              placeholder="Enter explanation..."
+              rows={4}
+            />
+          </div>
+
+          <button
+            className="save-btn"
+            onClick={handleSaveCard}
+            disabled={!selectedTarget.trim()}
+          >
+            Save Card
+          </button>
+
+          {savedCard && (
+            <div className="saved-notice">
+              Card saved: {savedCard.target} &mdash; {savedCard.explanation}
+            </div>
+          )}
+        </aside>
+      )}
     </div>
   );
 }

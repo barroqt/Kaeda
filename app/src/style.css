@@ -164,3 +164,135 @@ body {
 #help-text p {
   margin: 4px 0;
 }
+
+#right-panel {
+  width: 360px;
+  min-width: 360px;
+  background: var(--bg-sidebar);
+  border-left: 1px solid var(--border);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+#right-panel h2 {
+  font-size: 16px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  transition: color 0.2s;
+}
+
+.card-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.card-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: color 0.2s;
+}
+
+.card-sentence {
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.word-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  min-height: 42px;
+  align-items: center;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.word-space {
+  display: inline;
+}
+
+.word-token {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 15px;
+  color: var(--text-primary);
+  transition: background 0.1s, color 0.1s;
+}
+
+.word-token:hover {
+  background: var(--hover);
+}
+
+.word-token.selected {
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+}
+
+.card-field textarea {
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
+  outline: none;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.card-field textarea:focus {
+  border-color: var(--accent-border);
+}
+
+.save-btn {
+  padding: 10px 20px;
+  background: var(--accent-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s;
+}
+
+.save-btn:hover:not(:disabled) {
+  background: var(--accent-border);
+  color: var(--button-hover-text);
+}
+
+.save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.saved-notice {
+  padding: 8px 12px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-primary);
+  text-align: center;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}

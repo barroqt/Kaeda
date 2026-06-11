@@ -1,11 +1,11 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use kaeda_core::session::Session;
+use kaeda_core::session::{Card, Session};
 use kaeda_core::subtitle::{SubtitleEntry, entries_from_srt};
 
 mod dto;
-use dto::SubtitleDto;
+use dto::{CardDto, SubtitleDto};
 
 struct MiningSessionInner {
     session: Option<Session>,
@@ -99,6 +99,35 @@ impl MiningSessionState {
         inner.current_index = index;
         Ok(inner.current_index)
     }
+
+    pub fn save_card(&self, target: String, explanation: String) -> Result<CardDto, String> {
+        let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
+        if inner.session.is_none() {
+            return Err("no active session".to_string());
+        }
+        let (sentence, subtitle_id) = {
+            let entry = inner
+                .subtitles
+                .get(inner.current_index)
+                .ok_or("no current subtitle")?;
+            (entry.text.clone(), entry.id)
+        };
+
+        let session = inner.session.as_mut().ok_or("no active session")?;
+
+        let card = Card {
+            sentence,
+            target,
+            explanation,
+            deck: session.deck_name.clone(),
+            tags: vec![],
+            file_id: session.source_file_id.clone(),
+            subtitle_id,
+        };
+        let dto = CardDto::from(card.clone());
+        session.add_card(card);
+        Ok(dto)
+    }
 }
 
 #[tauri::command]
@@ -146,6 +175,15 @@ fn set_current_index(
     state.set_current_index(index)
 }
 
+#[tauri::command]
+fn save_card(
+    state: tauri::State<'_, MiningSessionState>,
+    target: String,
+    explanation: String,
+) -> Result<CardDto, String> {
+    state.save_card(target, explanation)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -157,9 +195,13 @@ pub fn run() {
             next_subtitle,
             previous_subtitle,
             set_current_index,
+            save_card,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|err| {
+            eprintln!("error: {err}");
+            std::process::exit(1);
+        });
 }
 
 #[cfg(test)]
@@ -320,5 +362,59 @@ mod tests {
     fn set_current_index_rejects_without_session() {
         let state = MiningSessionState::new();
         assert!(state.set_current_index(0).is_err());
+    }
+
+    #[test]
+    fn save_card_appends_to_session() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "test-deck".into(), "video-1".into())
+            .unwrap();
+
+        let card = state.save_card("안녕".into(), "Hello".into()).unwrap();
+        assert_eq!(card.sentence, "안녕하세요 반갑습니다.");
+        assert_eq!(card.target, "안녕");
+        assert_eq!(card.explanation, "Hello");
+        assert_eq!(card.deck, "test-deck");
+
+        let inner = state.inner.lock().unwrap();
+        let cards = inner.session.as_ref().unwrap().cards();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].target, "안녕");
+        assert_eq!(cards[0].explanation, "Hello");
+        assert_eq!(cards[0].subtitle_id, 1);
+    }
+
+    #[test]
+    fn save_card_returns_error_without_session() {
+        let state = MiningSessionState::new();
+        let result = state.save_card("test".into(), "explanation".into());
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "no active session");
+    }
+
+    #[test]
+    fn save_card_multiple_cards() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "deck".into(), "file".into())
+            .unwrap();
+
+        state.save_card("target1".into(), "exp1".into()).unwrap();
+        state.set_current_index(1).unwrap();
+        state.save_card("target2".into(), "exp2".into()).unwrap();
+
+        let inner = state.inner.lock().unwrap();
+        assert_eq!(inner.session.as_ref().unwrap().card_count(), 2);
+        assert_eq!(
+            inner.session.as_ref().unwrap().cards()[0].sentence,
+            "안녕하세요 반갑습니다."
+        );
+        assert_eq!(
+            inner.session.as_ref().unwrap().cards()[1].sentence,
+            "오늘은 날씨가 좋네요."
+        );
     }
 }
