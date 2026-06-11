@@ -2,6 +2,7 @@ pub mod dictionary;
 pub mod filter;
 pub mod parser;
 pub mod store;
+pub mod subtitle;
 pub mod tokenizer;
 pub mod util;
 

@@ -8,8 +8,8 @@ use tracing_subscriber::EnvFilter;
 use kaeda::app;
 use kaeda_core::dictionary;
 use kaeda_core::filter::{FilterConfig, load_frequency_list, load_known_set};
-use kaeda_core::parser::srt::parse_srt;
 use kaeda_core::store::{Stats, add_known_word, init_store, list_known_words};
+use kaeda_core::subtitle::entries_from_srt;
 
 #[derive(Parser)]
 #[command(name = "kaeda", about = "Korean vocabulary mining TUI")]
@@ -110,7 +110,7 @@ fn cmd_mine(file: PathBuf) -> anyhow::Result<()> {
     };
 
     let tokenizer = kaeda_core::tokenizer::korean::KoreanTokenizer::new()?;
-    let subtitles = parse_srt(&file.to_string_lossy())?;
+    let subtitles = entries_from_srt(&file)?;
     let mut state = app::AppState::new(subtitles, file.to_string_lossy().to_string(), &tokenizer);
 
     app::run(&mut state, &conn, &config)

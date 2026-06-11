@@ -3,7 +3,9 @@ guidelines.md
 steps.md
 progression.md
 AGENTS.md
-prd.md
+kaeda_v1_prd.md
+rust_best_practices.md
+ISSUES.md
 
 # Editor
 .vscode/

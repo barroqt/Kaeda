@@ -1,7 +1,7 @@
 use kaeda::app::{Action, AppState, handle_key};
 use kaeda_core::dictionary::db::build_index;
-use kaeda_core::parser::srt::parse_srt;
 use kaeda_core::store::{DeckEntry, add_to_deck, init_store};
+use kaeda_core::subtitle::entries_from_srt;
 use kaeda_core::tokenizer::korean::KoreanTokenizer;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
@@ -11,7 +11,7 @@ use rusqlite::Connection;
 #[test]
 fn full_session_smoke_test() {
     let tokenizer = KoreanTokenizer::new().unwrap();
-    let subtitles = parse_srt("tests/fixtures/sample.srt").unwrap();
+    let subtitles = entries_from_srt("tests/fixtures/sample.srt".as_ref()).unwrap();
     let mut state = AppState::new(subtitles, "sample.srt".to_string(), &tokenizer);
 
     let conn = Connection::open_in_memory().unwrap();

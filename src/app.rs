@@ -23,8 +23,8 @@ use kaeda_core::dictionary::api;
 use kaeda_core::dictionary::db::{DictEntry, cache_entry, lookup};
 use kaeda_core::filter::FilterConfig;
 use kaeda_core::filter::filter_content_tokens;
-use kaeda_core::parser::srt::Subtitle;
 use kaeda_core::store::{DeckEntry, add_to_deck, init_store, mark_known};
+use kaeda_core::subtitle::SubtitleEntry;
 use kaeda_core::tokenizer::korean::{KoreanTokenizer, Token};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -116,7 +116,7 @@ pub enum Action {
 }
 
 pub struct AppState {
-    pub subtitles: Vec<Subtitle>,
+    pub subtitles: Vec<SubtitleEntry>,
     pub pre_tokenized: Vec<Vec<Token>>,
     pub subtitle_cursor: usize,
     pub candidates: Vec<Token>,
@@ -154,7 +154,7 @@ impl AppState {
         render_help_bar(f, help);
     }
 
-    pub fn current_subtitle(&self) -> Option<&Subtitle> {
+    pub fn current_subtitle(&self) -> Option<&SubtitleEntry> {
         self.subtitles.get(self.subtitle_cursor)
     }
 
@@ -316,7 +316,11 @@ impl AppState {
         })
     }
 
-    pub fn new(subtitles: Vec<Subtitle>, source_file: String, tokenizer: &KoreanTokenizer) -> Self {
+    pub fn new(
+        subtitles: Vec<SubtitleEntry>,
+        source_file: String,
+        tokenizer: &KoreanTokenizer,
+    ) -> Self {
         let pre_tokenized: Vec<Vec<Token>> = subtitles
             .iter()
             .map(|s| {
@@ -459,28 +463,31 @@ mod tests {
     #[test]
     fn current_subtitle_returns_first() {
         let subtitles = vec![
-            Subtitle {
-                index: 1,
-                timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
+            SubtitleEntry {
+                id: 1,
+                start_time: "00:00:01,000".to_string(),
+                end_time: "00:00:02,000".to_string(),
                 text: "안녕하세요".to_string(),
             },
-            Subtitle {
-                index: 2,
-                timestamp: "00:00:03,000 --> 00:00:04,000".to_string(),
+            SubtitleEntry {
+                id: 2,
+                start_time: "00:00:03,000".to_string(),
+                end_time: "00:00:04,000".to_string(),
                 text: "반갑습니다".to_string(),
             },
         ];
         let state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
         let sub = state.current_subtitle().unwrap();
-        assert_eq!(sub.index, 1);
+        assert_eq!(sub.id, 1);
         assert_eq!(sub.text, "안녕하세요");
     }
 
     #[test]
     fn selected_candidate_returns_first_token() {
-        let subtitles = vec![Subtitle {
-            index: 1,
-            timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
+        let subtitles = vec![SubtitleEntry {
+            id: 1,
+            start_time: "00:00:01,000".to_string(),
+            end_time: "00:00:02,000".to_string(),
             text: "책을 읽습니다".to_string(),
         }];
         let state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
@@ -490,9 +497,10 @@ mod tests {
 
     #[test]
     fn next_candidate_increments_cursor() {
-        let subtitles = vec![Subtitle {
-            index: 1,
-            timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
+        let subtitles = vec![SubtitleEntry {
+            id: 1,
+            start_time: "00:00:01,000".to_string(),
+            end_time: "00:00:02,000".to_string(),
             text: "책을 읽습니다".to_string(),
         }];
         let mut state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
@@ -503,9 +511,10 @@ mod tests {
 
     #[test]
     fn prev_candidate_at_zero_stays_zero() {
-        let subtitles = vec![Subtitle {
-            index: 1,
-            timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
+        let subtitles = vec![SubtitleEntry {
+            id: 1,
+            start_time: "00:00:01,000".to_string(),
+            end_time: "00:00:02,000".to_string(),
             text: "책을 읽습니다".to_string(),
         }];
         let mut state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
@@ -517,14 +526,16 @@ mod tests {
     #[test]
     fn next_subtitle_resets_candidate_cursor() {
         let subtitles = vec![
-            Subtitle {
-                index: 1,
-                timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
+            SubtitleEntry {
+                id: 1,
+                start_time: "00:00:01,000".to_string(),
+                end_time: "00:00:02,000".to_string(),
                 text: "첫 번째 문장".to_string(),
             },
-            Subtitle {
-                index: 2,
-                timestamp: "00:00:03,000 --> 00:00:04,000".to_string(),
+            SubtitleEntry {
+                id: 2,
+                start_time: "00:00:03,000".to_string(),
+                end_time: "00:00:04,000".to_string(),
                 text: "두 번째 문장".to_string(),
             },
         ];
@@ -538,9 +549,10 @@ mod tests {
 
     #[test]
     fn prev_subtitle_at_zero_stays_zero() {
-        let subtitles = vec![Subtitle {
-            index: 1,
-            timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
+        let subtitles = vec![SubtitleEntry {
+            id: 1,
+            start_time: "00:00:01,000".to_string(),
+            end_time: "00:00:02,000".to_string(),
             text: "첫 번째 문장".to_string(),
         }];
         let mut state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
@@ -550,9 +562,10 @@ mod tests {
 
     #[test]
     fn switch_pane_cycles_correctly() {
-        let subtitles = vec![Subtitle {
-            index: 1,
-            timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
+        let subtitles = vec![SubtitleEntry {
+            id: 1,
+            start_time: "00:00:01,000".to_string(),
+            end_time: "00:00:02,000".to_string(),
             text: "안녕하세요".to_string(),
         }];
         let mut state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
@@ -571,14 +584,16 @@ mod tests {
         use ratatui::backend::TestBackend;
 
         let subtitles = vec![
-            Subtitle {
-                index: 1,
-                timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
+            SubtitleEntry {
+                id: 1,
+                start_time: "00:00:01,000".to_string(),
+                end_time: "00:00:02,000".to_string(),
                 text: "안녕하세요".to_string(),
             },
-            Subtitle {
-                index: 2,
-                timestamp: "00:00:03,000 --> 00:00:04,000".to_string(),
+            SubtitleEntry {
+                id: 2,
+                start_time: "00:00:03,000".to_string(),
+                end_time: "00:00:04,000".to_string(),
                 text: "반갑습니다".to_string(),
             },
         ];
@@ -590,9 +605,10 @@ mod tests {
 
     #[test]
     fn key_up_moves_candidate() {
-        let subtitles = vec![Subtitle {
-            index: 1,
-            timestamp: "".to_string(),
+        let subtitles = vec![SubtitleEntry {
+            id: 1,
+            start_time: String::new(),
+            end_time: String::new(),
             text: "책을 읽습니다".to_string(),
         }];
         let mut state = AppState::new(subtitles, "t.srt".to_string(), &test_tokenizer());
@@ -604,9 +620,10 @@ mod tests {
 
     #[test]
     fn key_down_moves_candidate() {
-        let subtitles = vec![Subtitle {
-            index: 1,
-            timestamp: "".to_string(),
+        let subtitles = vec![SubtitleEntry {
+            id: 1,
+            start_time: String::new(),
+            end_time: String::new(),
             text: "책을 읽습니다".to_string(),
         }];
         let mut state = AppState::new(subtitles, "t.srt".to_string(), &test_tokenizer());
@@ -617,9 +634,10 @@ mod tests {
 
     #[test]
     fn key_left_moves_subtitle() {
-        let subtitles = vec![Subtitle {
-            index: 1,
-            timestamp: "".to_string(),
+        let subtitles = vec![SubtitleEntry {
+            id: 1,
+            start_time: String::new(),
+            end_time: String::new(),
             text: "안녕".to_string(),
         }];
         let mut state = AppState::new(subtitles, "t.srt".to_string(), &test_tokenizer());
@@ -631,14 +649,16 @@ mod tests {
     #[test]
     fn key_right_moves_subtitle() {
         let subtitles = vec![
-            Subtitle {
-                index: 1,
-                timestamp: "".to_string(),
+            SubtitleEntry {
+                id: 1,
+                start_time: String::new(),
+                end_time: String::new(),
                 text: "안녕".to_string(),
             },
-            Subtitle {
-                index: 2,
-                timestamp: "".to_string(),
+            SubtitleEntry {
+                id: 2,
+                start_time: String::new(),
+                end_time: String::new(),
                 text: "반가워".to_string(),
             },
         ];
@@ -650,9 +670,10 @@ mod tests {
 
     #[test]
     fn key_tab_switches_pane() {
-        let subtitles = vec![Subtitle {
-            index: 1,
-            timestamp: "".to_string(),
+        let subtitles = vec![SubtitleEntry {
+            id: 1,
+            start_time: String::new(),
+            end_time: String::new(),
             text: "안녕".to_string(),
         }];
         let mut state = AppState::new(subtitles, "t.srt".to_string(), &test_tokenizer());
@@ -742,9 +763,10 @@ mod tests {
 
     #[test]
     fn build_deck_entry_constructs_from_state() {
-        let subtitles = vec![Subtitle {
-            index: 1,
-            timestamp: "00:00:01,000 --> 00:00:02,000".to_string(),
+        let subtitles = vec![SubtitleEntry {
+            id: 1,
+            start_time: "00:00:01,000".to_string(),
+            end_time: "00:00:02,000".to_string(),
             text: "책을 읽습니다".to_string(),
         }];
         let state = AppState::new(subtitles, "test.srt".to_string(), &test_tokenizer());
