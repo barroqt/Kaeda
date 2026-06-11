@@ -235,6 +235,7 @@ body {
   font-size: 15px;
   color: var(--text-primary);
   transition: background 0.1s, color 0.1s;
+  position: relative;
 }
 
 .word-token:hover {
@@ -244,6 +245,12 @@ body {
 .word-token.selected {
   background: var(--accent-bg);
   border: 1px solid var(--accent-border);
+}
+
+.word-token-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .card-field textarea {

@@ -3,13 +3,15 @@ use std::sync::Mutex;
 
 use kaeda_core::session::{Card, Session};
 use kaeda_core::subtitle::{SubtitleEntry, entries_from_srt};
+use kaeda_core::tokenizer::KoreanTokenizer;
 
 mod dto;
-use dto::{CardDto, SubtitleDto};
+use dto::{CardDto, SubtitleDto, TokenDto};
 
 struct MiningSessionInner {
     session: Option<Session>,
     subtitles: Vec<SubtitleEntry>,
+    subtitle_tokens: Vec<Vec<TokenDto>>,
     current_index: usize,
 }
 
@@ -29,6 +31,7 @@ impl MiningSessionState {
             inner: Mutex::new(MiningSessionInner {
                 session: None,
                 subtitles: Vec::new(),
+                subtitle_tokens: Vec::new(),
                 current_index: 0,
             }),
         }
@@ -44,17 +47,40 @@ impl MiningSessionState {
         if subtitles.is_empty() {
             return Err("no subtitles found in file".to_string());
         }
+        let tokenizer = KoreanTokenizer::new().map_err(|e| e.to_string())?;
+        let subtitle_tokens: Vec<Vec<TokenDto>> = subtitles
+            .iter()
+            .map(|sub| {
+                tokenizer
+                    .tokenize(&sub.text)
+                    .map(|tokens| tokens.iter().map(TokenDto::from).collect())
+                    .map_err(|e| e.to_string())
+            })
+            .collect::<Result<Vec<_>, String>>()?;
         let session = Session::new(deck_name, source_file_id);
         let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
         inner.session = Some(session);
         inner.subtitles = subtitles;
+        inner.subtitle_tokens = subtitle_tokens;
         inner.current_index = 0;
         Ok(())
     }
 
-    pub fn subtitles(&self) -> Result<Vec<SubtitleEntry>, String> {
+    pub fn subtitles(&self) -> Result<Vec<SubtitleDto>, String> {
         let inner = self.inner.lock().map_err(|e| e.to_string())?;
-        Ok(inner.subtitles.clone())
+        Ok(inner
+            .subtitles
+            .iter()
+            .zip(inner.subtitle_tokens.iter())
+            .map(|(entry, tokens)| SubtitleDto {
+                id: entry.id,
+                start_time: entry.start_time.clone(),
+                end_time: entry.end_time.clone(),
+                text: entry.text.clone(),
+                is_known: false,
+                tokens: tokens.clone(),
+            })
+            .collect())
     }
 
     pub fn current_index(&self) -> Result<usize, String> {
@@ -159,9 +185,7 @@ fn start_session(
 
 #[tauri::command]
 fn get_subtitles(state: tauri::State<'_, MiningSessionState>) -> Result<Vec<SubtitleDto>, String> {
-    state
-        .subtitles()
-        .map(|v| v.into_iter().map(SubtitleDto::from).collect())
+    state.subtitles()
 }
 
 #[tauri::command]
@@ -534,5 +558,90 @@ mod tests {
         assert_eq!(cards[0].sentence, "안녕하세요 반갑습니다.");
         assert_eq!(cards[1].sentence, "오늘은 날씨가 좋네요.");
         assert_eq!(cards[2].sentence, "저는 공부를 하고 있어요.");
+    }
+
+    #[test]
+    fn each_subtitle_has_tokens_after_session_start() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "deck".into(), "file".into())
+            .unwrap();
+
+        let subtitles = state.subtitles().unwrap();
+        assert_eq!(subtitles.len(), 5);
+        for (i, sub) in subtitles.iter().enumerate() {
+            assert!(
+                !sub.tokens.is_empty(),
+                "subtitle {} \"{}\" has no tokens",
+                i,
+                sub.text
+            );
+        }
+    }
+
+    #[test]
+    fn token_byte_positions_map_to_subtitle_text() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "deck".into(), "file".into())
+            .unwrap();
+
+        let subtitles = state.subtitles().unwrap();
+        for sub in &subtitles {
+            for token in &sub.tokens {
+                let slice = &sub.text[token.byte_start..token.byte_end];
+                assert_eq!(
+                    slice, token.surface,
+                    "byte range {}..{} does not match surface '{}' in text \"{}\"",
+                    token.byte_start, token.byte_end, token.surface, sub.text
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn token_surfaces_are_contiguous_in_byte_order() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "deck".into(), "file".into())
+            .unwrap();
+
+        let subtitles = state.subtitles().unwrap();
+        for sub in &subtitles {
+            let mut prev_end: Option<usize> = None;
+            for token in &sub.tokens {
+                if let Some(end) = prev_end {
+                    assert!(
+                        token.byte_start >= end,
+                        "token '{}' start {} < previous end {} in \"{}\"",
+                        token.surface,
+                        token.byte_start,
+                        end,
+                        sub.text
+                    );
+                }
+                prev_end = Some(token.byte_end);
+            }
+        }
+    }
+
+    #[test]
+    fn every_token_has_lemma_and_pos() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "deck".into(), "file".into())
+            .unwrap();
+
+        let subtitles = state.subtitles().unwrap();
+        for sub in &subtitles {
+            for token in &sub.tokens {
+                assert!(!token.lemma.is_empty(), "empty lemma in \"{}\"", sub.text);
+                assert!(!token.pos.is_empty(), "empty POS in \"{}\"", sub.text);
+            }
+        }
     }
 }

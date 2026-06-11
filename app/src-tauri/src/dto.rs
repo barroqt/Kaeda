@@ -2,6 +2,28 @@ use serde::{Deserialize, Serialize};
 
 use kaeda_core::session::Card;
 use kaeda_core::subtitle::SubtitleEntry;
+use kaeda_core::tokenizer::Token;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenDto {
+    pub surface: String,
+    pub lemma: String,
+    pub pos: String,
+    pub byte_start: usize,
+    pub byte_end: usize,
+}
+
+impl From<&Token> for TokenDto {
+    fn from(t: &Token) -> Self {
+        Self {
+            surface: t.surface.to_string(),
+            lemma: t.lemma.to_string(),
+            pos: t.pos.to_string(),
+            byte_start: t.byte_start,
+            byte_end: t.byte_end,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubtitleDto {
@@ -10,6 +32,7 @@ pub struct SubtitleDto {
     pub end_time: String,
     pub text: String,
     pub is_known: bool,
+    pub tokens: Vec<TokenDto>,
 }
 
 #[allow(dead_code)]
@@ -31,6 +54,7 @@ impl From<SubtitleEntry> for SubtitleDto {
             end_time: entry.end_time,
             text: entry.text,
             is_known: false,
+            tokens: Vec::new(),
         }
     }
 }
@@ -66,6 +90,7 @@ mod tests {
         assert_eq!(dto.end_time, "00:01:05,000");
         assert_eq!(dto.text, "안녕하세요");
         assert!(!dto.is_known);
+        assert!(dto.tokens.is_empty());
     }
 
     #[test]
@@ -86,5 +111,22 @@ mod tests {
         assert_eq!(dto.explanation, "Hello");
         assert_eq!(dto.deck, "my-deck");
         assert_eq!(dto.tags, vec!["korean"]);
+    }
+
+    #[test]
+    fn token_to_dto_maps_all_fields() {
+        let token = Token {
+            surface: "먹".into(),
+            lemma: "먹다".into(),
+            pos: "VV".into(),
+            byte_start: 0,
+            byte_end: 3,
+        };
+        let dto = TokenDto::from(&token);
+        assert_eq!(dto.surface, "먹");
+        assert_eq!(dto.lemma, "먹다");
+        assert_eq!(dto.pos, "VV");
+        assert_eq!(dto.byte_start, 0);
+        assert_eq!(dto.byte_end, 3);
     }
 }

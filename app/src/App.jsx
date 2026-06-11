@@ -10,24 +10,18 @@ function getInitialDark() {
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
-function splitWords(text) {
-  return text.split(/(\s+)/).map((t, i) => ({
-    text: t,
-    key: i,
-    isSpace: /^\s+$/.test(t),
-  }));
-}
-
 export default function App() {
   const [subtitles, setSubtitles] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [dark, setDark] = useState(getInitialDark);
-  const [selectedTarget, setSelectedTarget] = useState("");
+  const [selectedTokenIndex, setSelectedTokenIndex] = useState(-1);
   const [explanation, setExplanation] = useState("");
   const [savedCard, setSavedCard] = useState(null);
   const [sessionCards, setSessionCards] = useState([]);
   const [viewingCards, setViewingCards] = useState(false);
   const navigateRef = useRef(null);
+  const tokenNavRef = useRef(null);
+  const saveRef = useRef(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -50,7 +44,7 @@ export default function App() {
   }, [loadSubtitles]);
 
   useEffect(() => {
-    setSelectedTarget("");
+    setSelectedTokenIndex(-1);
     setExplanation("");
     setSavedCard(null);
   }, [currentIndex]);
@@ -97,10 +91,13 @@ export default function App() {
   }
 
   async function handleSaveCard() {
-    if (!selectedTarget.trim()) return;
+    if (selectedTokenIndex < 0) return;
+    const current = subtitles[currentIndex];
+    if (!current || !current.tokens || selectedTokenIndex >= current.tokens.length) return;
+    const target = current.tokens[selectedTokenIndex].lemma;
     try {
       const card = await invoke("save_card", {
-        target: selectedTarget.trim(),
+        target,
         explanation,
       });
       setSavedCard(card);
@@ -127,6 +124,8 @@ export default function App() {
   }
 
   navigateRef.current = navigate;
+  tokenNavRef.current = { selectedTokenIndex, subtitles, currentIndex, setSelectedTokenIndex };
+  saveRef.current = handleSaveCard;
 
   useEffect(() => {
     function handleKey(e) {
@@ -136,9 +135,25 @@ export default function App() {
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         navigateRef.current(-1);
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        const ref = tokenNavRef.current;
+        const tokens = ref.subtitles[ref.currentIndex]?.tokens;
+        if (tokens && tokens.length > 0 && ref.selectedTokenIndex > 0) {
+          ref.setSelectedTokenIndex(ref.selectedTokenIndex - 1);
+        }
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        const ref = tokenNavRef.current;
+        const tokens = ref.subtitles[ref.currentIndex]?.tokens;
+        if (tokens && tokens.length > 0 && ref.selectedTokenIndex < tokens.length - 1) {
+          ref.setSelectedTokenIndex(
+            ref.selectedTokenIndex < 0 ? 0 : ref.selectedTokenIndex + 1,
+          );
+        }
       } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        handleSaveCard();
+        saveRef.current();
       }
     }
     document.addEventListener("keydown", handleKey);
@@ -191,6 +206,8 @@ export default function App() {
             </div>
             <div id="help-text">
               <p>&uarr; &darr; Navigate subtitles</p>
+              <p>&larr; &rarr; Select token</p>
+              <p>&#8984;+Enter Save card</p>
               <p>Click a subtitle to select it</p>
             </div>
           </>
@@ -232,23 +249,24 @@ export default function App() {
               <div className="card-field">
                 <label>Target Word</label>
                 <div className="word-tokens">
-                  {splitWords(current.text).map((t) =>
-                    t.isSpace ? (
-                      <span key={t.key} className="word-space">
-                        {" "}
-                      </span>
-                    ) : (
+                  {current.tokens && current.tokens.length > 0 ? (
+                    current.tokens.map((t, i) => (
                       <span
-                        key={t.key}
+                        key={i}
                         className={
                           "word-token" +
-                          (selectedTarget === t.text ? " selected" : "")
+                          (selectedTokenIndex === i ? " selected" : "")
                         }
-                        onClick={() => setSelectedTarget(t.text)}
+                        onClick={() => setSelectedTokenIndex(i)}
+                        title={`${t.lemma} (${t.pos})`}
                       >
-                        {t.text}
+                        {t.surface}
                       </span>
-                    ),
+                    ))
+                  ) : (
+                    <span className="word-token-empty">
+                      No tokens available
+                    </span>
                   )}
                 </div>
               </div>
@@ -266,7 +284,7 @@ export default function App() {
               <button
                 className="save-btn"
                 onClick={handleSaveCard}
-                disabled={!selectedTarget.trim()}
+                disabled={selectedTokenIndex < 0}
               >
                 Save Card
               </button>
