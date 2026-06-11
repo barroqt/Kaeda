@@ -175,6 +175,7 @@ impl MiningSessionState {
         let session = inner.session.as_mut().ok_or("no active session")?;
 
         let card = Card {
+            card_id: 0,
             sentence,
             target,
             explanation,
@@ -183,9 +184,8 @@ impl MiningSessionState {
             file_id: session.source_file_id.clone(),
             subtitle_id,
         };
-        let dto = CardDto::from(card.clone());
-        session.add_card(card);
-        Ok(dto)
+        let saved = session.add_card(card);
+        Ok(CardDto::from(saved))
     }
 
     pub fn session_cards(&self) -> Result<Vec<CardDto>, String> {
@@ -198,6 +198,32 @@ impl MiningSessionState {
         let inner = self.inner.lock().map_err(|e| e.to_string())?;
         let session = inner.session.as_ref().ok_or("no active session")?;
         session.export_tsv(path).map_err(|e| e.to_string())
+    }
+
+    pub fn edit_card(
+        &self,
+        card_id: u32,
+        sentence: String,
+        target: String,
+        explanation: String,
+    ) -> Result<CardDto, String> {
+        let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
+        let session = inner.session.as_mut().ok_or("no active session")?;
+        session
+            .edit_card(card_id, sentence, target, explanation)
+            .map_err(|e| e.to_string())?;
+        let cards = session.cards();
+        let card = cards
+            .iter()
+            .find(|c| c.card_id == card_id)
+            .ok_or("card not found after edit")?;
+        Ok(CardDto::from(card.clone()))
+    }
+
+    pub fn delete_card(&self, card_id: u32) -> Result<(), String> {
+        let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
+        let session = inner.session.as_mut().ok_or("no active session")?;
+        session.remove_card(card_id).map_err(|e| e.to_string())
     }
 }
 
@@ -264,6 +290,22 @@ fn export_session(state: tauri::State<'_, MiningSessionState>, path: String) -> 
 }
 
 #[tauri::command]
+fn edit_card(
+    state: tauri::State<'_, MiningSessionState>,
+    card_id: u32,
+    sentence: String,
+    target: String,
+    explanation: String,
+) -> Result<CardDto, String> {
+    state.edit_card(card_id, sentence, target, explanation)
+}
+
+#[tauri::command]
+fn delete_card(state: tauri::State<'_, MiningSessionState>, card_id: u32) -> Result<(), String> {
+    state.delete_card(card_id)
+}
+
+#[tauri::command]
 fn request_translation(
     lemma: String,
     app_handle: tauri::AppHandle,
@@ -320,6 +362,8 @@ pub fn run() {
             previous_subtitle,
             set_current_index,
             save_card,
+            edit_card,
+            delete_card,
             get_session_cards,
             export_session,
             request_translation,
@@ -758,5 +802,135 @@ mod tests {
         manager.insert_cache("우정".into(), "friendship".into());
         assert_eq!(manager.get_cached("사랑"), Some("love".into()));
         assert_eq!(manager.get_cached("우정"), Some("friendship".into()));
+    }
+
+    #[test]
+    fn edit_card_updates_session_card() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "deck".into(), "file".into())
+            .unwrap();
+
+        let saved = state.save_card("target1".into(), "exp1".into()).unwrap();
+        let card_id = saved.card_id;
+
+        let updated = state
+            .edit_card(
+                card_id,
+                "new sentence".into(),
+                "new target".into(),
+                "new expl".into(),
+            )
+            .unwrap();
+        assert_eq!(updated.sentence, "new sentence");
+        assert_eq!(updated.target, "new target");
+        assert_eq!(updated.explanation, "new expl");
+        assert_eq!(updated.card_id, card_id);
+
+        let cards = state.session_cards().unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].sentence, "new sentence");
+        assert_eq!(cards[0].target, "new target");
+    }
+
+    #[test]
+    fn edit_card_returns_error_without_session() {
+        let state = MiningSessionState::new();
+        let result = state.edit_card(1, "s".into(), "t".into(), "e".into());
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "no active session");
+    }
+
+    #[test]
+    fn edit_card_returns_error_for_invalid_id() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "deck".into(), "file".into())
+            .unwrap();
+
+        let result = state.edit_card(999, "s".into(), "t".into(), "e".into());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn delete_card_removes_card_from_session() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "deck".into(), "file".into())
+            .unwrap();
+
+        let saved = state.save_card("target1".into(), "exp1".into()).unwrap();
+        let card_id = saved.card_id;
+
+        assert_eq!(state.session_cards().unwrap().len(), 1);
+
+        state.delete_card(card_id).unwrap();
+        assert_eq!(state.session_cards().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn delete_card_returns_error_without_session() {
+        let state = MiningSessionState::new();
+        let result = state.delete_card(1);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "no active session");
+    }
+
+    #[test]
+    fn delete_card_returns_error_for_invalid_id() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "deck".into(), "file".into())
+            .unwrap();
+
+        let result = state.delete_card(999);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn deleted_cards_not_in_get_session_cards() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "deck".into(), "file".into())
+            .unwrap();
+
+        state.save_card("keep".into(), "keep".into()).unwrap();
+        let card2 = state.save_card("delete".into(), "delete".into()).unwrap();
+        state.save_card("keep2".into(), "keep2".into()).unwrap();
+
+        state.delete_card(card2.card_id).unwrap();
+
+        let cards = state.session_cards().unwrap();
+        assert_eq!(cards.len(), 2);
+        for card in &cards {
+            assert_ne!(card.target, "delete");
+        }
+    }
+
+    #[test]
+    fn deleted_cards_not_in_export() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "deck".into(), "file".into())
+            .unwrap();
+
+        state.save_card("keep".into(), "keep".into()).unwrap();
+        let to_delete = state.save_card("delete".into(), "delete".into()).unwrap();
+        state.delete_card(to_delete.card_id).unwrap();
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("kaeda_edit_delete_export.tsv");
+        state.export_session(&path).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "keep\t안녕하세요 반갑습니다.\tkeep\n");
+
+        let _ = std::fs::remove_file(&path);
     }
 }

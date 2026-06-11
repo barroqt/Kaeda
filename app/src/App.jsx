@@ -21,6 +21,10 @@ export default function App() {
   const [savedCard, setSavedCard] = useState(null);
   const [sessionCards, setSessionCards] = useState([]);
   const [viewingCards, setViewingCards] = useState(false);
+  const [editingCard, setEditingCard] = useState(null);
+  const [editSentence, setEditSentence] = useState("");
+  const [editTarget, setEditTarget] = useState("");
+  const [editExplanation, setEditExplanation] = useState("");
   const navigateRef = useRef(null);
   const tokenNavRef = useRef(null);
   const saveRef = useRef(null);
@@ -165,6 +169,44 @@ export default function App() {
     setViewingCards((v) => !v);
   }
 
+  function openEditDialog(card) {
+    setEditingCard(card);
+    setEditSentence(card.sentence);
+    setEditTarget(card.target);
+    setEditExplanation(card.explanation);
+  }
+
+  function closeEditDialog() {
+    setEditingCard(null);
+  }
+
+  async function handleEditSave() {
+    if (!editingCard) return;
+    try {
+      await invoke("edit_card", {
+        cardId: editingCard.card_id,
+        sentence: editSentence,
+        target: editTarget,
+        explanation: editExplanation,
+      });
+      closeEditDialog();
+      await loadSessionCards();
+    } catch (err) {
+      alert(`Error saving card: ${err}`);
+    }
+  }
+
+  async function handleDeleteCard(cardId) {
+    if (!confirm("Delete this card?")) return;
+    try {
+      await invoke("delete_card", { cardId });
+      closeEditDialog();
+      await loadSessionCards();
+    } catch (err) {
+      alert(`Error deleting card: ${err}`);
+    }
+  }
+
   navigateRef.current = navigate;
   tokenNavRef.current = { selectedTokenIndex, subtitles, currentIndex, setSelectedTokenIndex };
   saveRef.current = handleSaveCard;
@@ -270,7 +312,7 @@ export default function App() {
                 <div className="empty-cards">No cards saved yet.</div>
               ) : (
                 sessionCards.map((card, i) => (
-                  <div key={i} className="session-card-item">
+                  <div key={card.card_id} className="session-card-item" onClick={() => openEditDialog(card)}>
                     <div className="session-card-index">#{i + 1}</div>
                     <div className="session-card-target">{card.target}</div>
                     <div className="session-card-sentence">{card.sentence}</div>
@@ -340,6 +382,53 @@ export default function App() {
             </>
           )}
         </aside>
+      )}
+
+      {editingCard && (
+        <div className="dialog-overlay" onClick={closeEditDialog}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Edit Card</h3>
+
+            <div className="dialog-field">
+              <label>Sentence</label>
+              <textarea
+                value={editSentence}
+                onChange={(e) => setEditSentence(e.target.value)}
+                rows={3}
+              />
+            </div>
+
+            <div className="dialog-field">
+              <label>Target Word</label>
+              <input
+                type="text"
+                value={editTarget}
+                onChange={(e) => setEditTarget(e.target.value)}
+              />
+            </div>
+
+            <div className="dialog-field">
+              <label>Explanation</label>
+              <textarea
+                value={editExplanation}
+                onChange={(e) => setEditExplanation(e.target.value)}
+                rows={4}
+              />
+            </div>
+
+            <div className="dialog-actions">
+              <button className="dialog-btn dialog-btn-save" onClick={handleEditSave}>
+                Save
+              </button>
+              <button className="dialog-btn dialog-btn-delete" onClick={() => handleDeleteCard(editingCard.card_id)}>
+                Delete
+              </button>
+              <button className="dialog-btn dialog-btn-cancel" onClick={closeEditDialog}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

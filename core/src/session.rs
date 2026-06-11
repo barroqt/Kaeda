@@ -4,6 +4,7 @@ use crate::subtitle::CoreError;
 
 #[derive(Debug, Clone)]
 pub struct Card {
+    pub card_id: u32,
     pub sentence: String,
     pub target: String,
     pub explanation: String,
@@ -17,6 +18,7 @@ pub struct Card {
 pub struct Session {
     pub deck_name: String,
     pub source_file_id: String,
+    next_card_id: u32,
     cards: Vec<Card>,
 }
 
@@ -25,12 +27,44 @@ impl Session {
         Self {
             deck_name,
             source_file_id,
+            next_card_id: 1,
             cards: Vec::new(),
         }
     }
 
-    pub fn add_card(&mut self, card: Card) {
-        self.cards.push(card);
+    pub fn add_card(&mut self, mut card: Card) -> Card {
+        card.card_id = self.next_card_id;
+        self.next_card_id += 1;
+        self.cards.push(card.clone());
+        card
+    }
+
+    pub fn edit_card(
+        &mut self,
+        card_id: u32,
+        sentence: String,
+        target: String,
+        explanation: String,
+    ) -> Result<(), CoreError> {
+        let card = self
+            .cards
+            .iter_mut()
+            .find(|c| c.card_id == card_id)
+            .ok_or(CoreError::CardNotFound(card_id))?;
+        card.sentence = sentence;
+        card.target = target;
+        card.explanation = explanation;
+        Ok(())
+    }
+
+    pub fn remove_card(&mut self, card_id: u32) -> Result<(), CoreError> {
+        let idx = self
+            .cards
+            .iter()
+            .position(|c| c.card_id == card_id)
+            .ok_or(CoreError::CardNotFound(card_id))?;
+        self.cards.remove(idx);
+        Ok(())
     }
 
     pub fn cards(&self) -> &[Card] {
@@ -77,6 +111,7 @@ mod tests {
     fn export_tsv_single_card_writes_correct_row() {
         let mut session = Session::new("deck".to_string(), "file".to_string());
         session.add_card(Card {
+            card_id: 0,
             sentence: "안녕하세요".to_string(),
             target: "안녕".to_string(),
             explanation: "Hello".to_string(),
@@ -100,6 +135,7 @@ mod tests {
     fn export_tsv_multiple_cards_produces_correct_rows() {
         let mut session = Session::new("deck".to_string(), "file".to_string());
         session.add_card(Card {
+            card_id: 0,
             sentence: "책을 읽습니다".to_string(),
             target: "책".to_string(),
             explanation: "book".to_string(),
@@ -109,6 +145,7 @@ mod tests {
             subtitle_id: 1,
         });
         session.add_card(Card {
+            card_id: 0,
             sentence: "물을 마십니다".to_string(),
             target: "물".to_string(),
             explanation: "water".to_string(),
@@ -133,6 +170,7 @@ mod tests {
     fn export_tsv_sanitizes_tabs_and_newlines() {
         let mut session = Session::new("deck".to_string(), "file".to_string());
         session.add_card(Card {
+            card_id: 0,
             sentence: "line1\nline2".to_string(),
             target: "tar\tget".to_string(),
             explanation: "exp\tlanation\nsecond".to_string(),
@@ -164,6 +202,7 @@ mod tests {
     fn add_card_increases_count() {
         let mut session = Session::new("deck".to_string(), "f".to_string());
         let card = Card {
+            card_id: 0,
             sentence: "안녕하세요".to_string(),
             target: "안녕".to_string(),
             explanation: "Hello".to_string(),
@@ -180,6 +219,7 @@ mod tests {
     fn add_card_stores_correct_fields() {
         let mut session = Session::new("deck".to_string(), "file".to_string());
         let card = Card {
+            card_id: 0,
             sentence: "책을 읽습니다".to_string(),
             target: "책".to_string(),
             explanation: "book".to_string(),
@@ -202,6 +242,7 @@ mod tests {
         let mut session = Session::new("deck".to_string(), "file".to_string());
         for i in 0..3 {
             session.add_card(Card {
+                card_id: 0,
                 sentence: format!("sentence {i}"),
                 target: format!("target {i}"),
                 explanation: String::new(),
@@ -219,6 +260,7 @@ mod tests {
     fn cards_getter_returns_immutable_slice() {
         let mut session = Session::new("d".to_string(), "f".to_string());
         session.add_card(Card {
+            card_id: 0,
             sentence: "test".to_string(),
             target: "t".to_string(),
             explanation: String::new(),
@@ -229,5 +271,208 @@ mod tests {
         });
         let cards = session.cards();
         assert_eq!(cards.len(), 1);
+    }
+
+    #[test]
+    fn add_card_assigns_card_id() {
+        let mut session = Session::new("deck".to_string(), "file".to_string());
+        let card = session.add_card(Card {
+            card_id: 0,
+            sentence: "test".to_string(),
+            target: "t".to_string(),
+            explanation: "e".to_string(),
+            deck: "d".to_string(),
+            tags: vec![],
+            file_id: "f".to_string(),
+            subtitle_id: 1,
+        });
+        assert_eq!(card.card_id, 1);
+        assert_eq!(session.cards()[0].card_id, 1);
+    }
+
+    #[test]
+    fn add_card_increments_card_id() {
+        let mut session = Session::new("deck".to_string(), "file".to_string());
+        let card1 = session.add_card(Card {
+            card_id: 0,
+            sentence: "s1".to_string(),
+            target: "t1".to_string(),
+            explanation: "e1".to_string(),
+            deck: "d".to_string(),
+            tags: vec![],
+            file_id: "f".to_string(),
+            subtitle_id: 1,
+        });
+        let card2 = session.add_card(Card {
+            card_id: 0,
+            sentence: "s2".to_string(),
+            target: "t2".to_string(),
+            explanation: "e2".to_string(),
+            deck: "d".to_string(),
+            tags: vec![],
+            file_id: "f".to_string(),
+            subtitle_id: 2,
+        });
+        assert_eq!(card1.card_id, 1);
+        assert_eq!(card2.card_id, 2);
+    }
+
+    #[test]
+    fn edit_card_updates_fields() {
+        let mut session = Session::new("deck".to_string(), "file".to_string());
+        session.add_card(Card {
+            card_id: 0,
+            sentence: "original sentence".to_string(),
+            target: "original".to_string(),
+            explanation: "original expl".to_string(),
+            deck: "d".to_string(),
+            tags: vec![],
+            file_id: "f".to_string(),
+            subtitle_id: 1,
+        });
+        session
+            .edit_card(
+                1,
+                "new sentence".to_string(),
+                "new target".to_string(),
+                "new expl".to_string(),
+            )
+            .unwrap();
+        let card = &session.cards()[0];
+        assert_eq!(card.sentence, "new sentence");
+        assert_eq!(card.target, "new target");
+        assert_eq!(card.explanation, "new expl");
+    }
+
+    #[test]
+    fn edit_card_returns_error_for_invalid_id() {
+        let mut session = Session::new("deck".to_string(), "file".to_string());
+        let result = session.edit_card(42, "s".to_string(), "t".to_string(), "e".to_string());
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), CoreError::CardNotFound(42)));
+    }
+
+    #[test]
+    fn edit_card_preserves_other_cards() {
+        let mut session = Session::new("deck".to_string(), "file".to_string());
+        session.add_card(Card {
+            card_id: 0,
+            sentence: "first".to_string(),
+            target: "t1".to_string(),
+            explanation: "e1".to_string(),
+            deck: "d".to_string(),
+            tags: vec![],
+            file_id: "f".to_string(),
+            subtitle_id: 1,
+        });
+        session.add_card(Card {
+            card_id: 0,
+            sentence: "second".to_string(),
+            target: "t2".to_string(),
+            explanation: "e2".to_string(),
+            deck: "d".to_string(),
+            tags: vec![],
+            file_id: "f".to_string(),
+            subtitle_id: 2,
+        });
+        session
+            .edit_card(
+                1,
+                "edited first".to_string(),
+                "edited".to_string(),
+                "edited".to_string(),
+            )
+            .unwrap();
+        assert_eq!(session.cards()[1].sentence, "second");
+        assert_eq!(session.cards()[1].target, "t2");
+    }
+
+    #[test]
+    fn remove_card_decreases_count() {
+        let mut session = Session::new("deck".to_string(), "file".to_string());
+        session.add_card(Card {
+            card_id: 0,
+            sentence: "test".to_string(),
+            target: "t".to_string(),
+            explanation: "e".to_string(),
+            deck: "d".to_string(),
+            tags: vec![],
+            file_id: "f".to_string(),
+            subtitle_id: 1,
+        });
+        assert_eq!(session.card_count(), 1);
+        session.remove_card(1).unwrap();
+        assert_eq!(session.card_count(), 0);
+    }
+
+    #[test]
+    fn remove_card_removes_specific_card() {
+        let mut session = Session::new("deck".to_string(), "file".to_string());
+        session.add_card(Card {
+            card_id: 0,
+            sentence: "first".to_string(),
+            target: "t1".to_string(),
+            explanation: "e1".to_string(),
+            deck: "d".to_string(),
+            tags: vec![],
+            file_id: "f".to_string(),
+            subtitle_id: 1,
+        });
+        session.add_card(Card {
+            card_id: 0,
+            sentence: "second".to_string(),
+            target: "t2".to_string(),
+            explanation: "e2".to_string(),
+            deck: "d".to_string(),
+            tags: vec![],
+            file_id: "f".to_string(),
+            subtitle_id: 2,
+        });
+        session.remove_card(1).unwrap();
+        assert_eq!(session.card_count(), 1);
+        assert_eq!(session.cards()[0].target, "t2");
+    }
+
+    #[test]
+    fn remove_card_returns_error_for_invalid_id() {
+        let mut session = Session::new("deck".to_string(), "file".to_string());
+        let result = session.remove_card(99);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), CoreError::CardNotFound(99)));
+    }
+
+    #[test]
+    fn remove_card_excludes_from_export() {
+        let mut session = Session::new("deck".to_string(), "file".to_string());
+        session.add_card(Card {
+            card_id: 0,
+            sentence: "keep".to_string(),
+            target: "keep".to_string(),
+            explanation: "keep".to_string(),
+            deck: "d".to_string(),
+            tags: vec![],
+            file_id: "f".to_string(),
+            subtitle_id: 1,
+        });
+        session.add_card(Card {
+            card_id: 0,
+            sentence: "delete".to_string(),
+            target: "delete".to_string(),
+            explanation: "delete".to_string(),
+            deck: "d".to_string(),
+            tags: vec![],
+            file_id: "f".to_string(),
+            subtitle_id: 2,
+        });
+        session.remove_card(2).unwrap();
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("kaeda_test_after_delete.tsv");
+        session.export_tsv(&path).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "keep\tkeep\tkeep\n");
+
+        let _ = std::fs::remove_file(&path);
     }
 }

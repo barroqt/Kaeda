@@ -381,3 +381,130 @@ body {
   color: var(--text-secondary);
   font-style: italic;
 }
+
+.session-card-item {
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+.session-card-item:hover {
+  background: var(--hover);
+  border-color: var(--accent-border);
+}
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+}
+
+.dialog {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  width: 480px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.dialog h3 {
+  font-size: 18px;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dialog-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dialog-field input,
+.dialog-field textarea {
+  padding: 8px 10px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.dialog-field input:focus,
+.dialog-field textarea:focus {
+  border-color: var(--accent-border);
+}
+
+.dialog-field textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.dialog-btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.dialog-btn-save {
+  background: var(--accent-bg);
+  color: var(--text-primary);
+  border-color: var(--accent-border);
+}
+
+.dialog-btn-save:hover {
+  background: var(--accent-border);
+  color: var(--button-hover-text);
+}
+
+.dialog-btn-delete {
+  background: transparent;
+  color: #d32f2f;
+  border-color: #d32f2f;
+}
+
+.dialog-btn-delete:hover {
+  background: #d32f2f;
+  color: #fff;
+}
+
+.dialog-btn-cancel {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.dialog-btn-cancel:hover {
+  background: var(--hover);
+  color: var(--text-primary);
+}

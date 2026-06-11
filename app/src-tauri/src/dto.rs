@@ -38,6 +38,7 @@ pub struct SubtitleDto {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CardDto {
+    pub card_id: u32,
     pub id: u32,
     pub sentence: String,
     pub target: String,
@@ -62,6 +63,7 @@ impl From<SubtitleEntry> for SubtitleDto {
 impl From<Card> for CardDto {
     fn from(card: Card) -> Self {
         Self {
+            card_id: card.card_id,
             id: card.subtitle_id,
             sentence: card.sentence,
             target: card.target,
@@ -96,6 +98,7 @@ mod tests {
     #[test]
     fn card_to_dto_maps_all_fields() {
         let card = Card {
+            card_id: 0,
             sentence: "안녕하세요".into(),
             target: "안녕".into(),
             explanation: "Hello".into(),
@@ -105,6 +108,7 @@ mod tests {
             subtitle_id: 1,
         };
         let dto = CardDto::from(card);
+        assert_eq!(dto.card_id, 0);
         assert_eq!(dto.id, 1);
         assert_eq!(dto.sentence, "안녕하세요");
         assert_eq!(dto.target, "안녕");

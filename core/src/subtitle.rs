@@ -23,6 +23,8 @@ pub enum CoreError {
     Network(String),
     #[error("failed to write export file: {0}")]
     Export(String),
+    #[error("card with id {0} not found")]
+    CardNotFound(u32),
 }
 
 pub fn entries_from_srt(path: &Path) -> Result<Vec<SubtitleEntry>, CoreError> {
