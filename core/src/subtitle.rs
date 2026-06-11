@@ -3,7 +3,7 @@ use thiserror::Error;
 
 use crate::util::strip_html_tags;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SubtitleEntry {
     pub id: u32,
     pub start_time: String,

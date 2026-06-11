@@ -23,3 +23,8 @@ ISSUES.md
 # Runtime artifacts (created at project root during testing)
 *.db
 wordlist.txt
+
+# app front
+app/dist/
+app/node_modules
+*.srt

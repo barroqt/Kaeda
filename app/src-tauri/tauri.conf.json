@@ -5,15 +5,15 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "",
-    "beforeBuildCommand": ""
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build"
   },
   "app": {
     "windows": [
       {
         "title": "Kaeda",
-        "width": 800,
-        "height": 600
+        "width": 1000,
+        "height": 700
       }
     ]
   },
