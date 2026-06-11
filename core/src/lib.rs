@@ -1,6 +1,7 @@
 pub mod dictionary;
 pub mod filter;
 pub mod parser;
+pub mod session;
 pub mod store;
 pub mod subtitle;
 pub mod tokenizer;
