@@ -1,12 +1,45 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 
+use kaeda_core::dictionary;
 use kaeda_core::session::{Card, Session};
 use kaeda_core::subtitle::{SubtitleEntry, entries_from_srt};
 use kaeda_core::tokenizer::KoreanTokenizer;
+use tauri::Emitter;
+use tauri::Manager;
 
 mod dto;
 use dto::{CardDto, SubtitleDto, TokenDto};
+
+#[derive(Clone, serde::Serialize)]
+struct TranslationResult {
+    lemma: String,
+    translation: Option<String>,
+}
+
+struct TranslationManager {
+    cache: Mutex<HashMap<String, String>>,
+}
+
+impl TranslationManager {
+    fn new() -> Self {
+        Self {
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn get_cached(&self, lemma: &str) -> Option<String> {
+        let cache = self.cache.lock().ok()?;
+        cache.get(lemma).cloned()
+    }
+
+    fn insert_cache(&self, lemma: String, translation: String) {
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.insert(lemma, translation);
+        }
+    }
+}
 
 struct MiningSessionInner {
     session: Option<Session>,
@@ -230,10 +263,55 @@ fn export_session(state: tauri::State<'_, MiningSessionState>, path: String) -> 
     state.export_session(Path::new(&path))
 }
 
+#[tauri::command]
+fn request_translation(
+    lemma: String,
+    app_handle: tauri::AppHandle,
+    translation_manager: tauri::State<'_, TranslationManager>,
+) -> Result<Option<String>, String> {
+    if lemma.trim().is_empty() {
+        return Ok(None);
+    }
+
+    if let Some(translation) = translation_manager.get_cached(&lemma) {
+        return Ok(Some(translation));
+    }
+
+    let app_handle = app_handle.clone();
+    let lemma_clone = lemma.clone();
+
+    std::thread::spawn(move || {
+        let translation = match dictionary::suggest_explanation(&lemma_clone) {
+            Ok(Some(translation)) => {
+                if let Some(manager) = app_handle.try_state::<TranslationManager>() {
+                    manager.insert_cache(lemma_clone.clone(), translation.clone());
+                }
+                Some(translation)
+            }
+            Ok(None) => None,
+            Err(e) => {
+                eprintln!("dictionary lookup failed for '{lemma_clone}': {e:?}");
+                None
+            }
+        };
+
+        let _ = app_handle.emit(
+            "translation-result",
+            TranslationResult {
+                lemma: lemma_clone,
+                translation,
+            },
+        );
+    });
+
+    Ok(None)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(MiningSessionState::new())
+        .manage(TranslationManager::new())
         .invoke_handler(tauri::generate_handler![
             start_session,
             get_subtitles,
@@ -244,6 +322,7 @@ pub fn run() {
             save_card,
             get_session_cards,
             export_session,
+            request_translation,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {
@@ -643,5 +722,41 @@ mod tests {
                 assert!(!token.pos.is_empty(), "empty POS in \"{}\"", sub.text);
             }
         }
+    }
+
+    #[test]
+    fn translation_manager_cache_hit() {
+        let manager = TranslationManager::new();
+        manager.insert_cache("사랑".into(), "love".into());
+        assert_eq!(manager.get_cached("사랑"), Some("love".into()));
+    }
+
+    #[test]
+    fn translation_manager_cache_miss() {
+        let manager = TranslationManager::new();
+        assert_eq!(manager.get_cached("없는단어"), None);
+    }
+
+    #[test]
+    fn translation_manager_cache_empty() {
+        let manager = TranslationManager::new();
+        assert_eq!(manager.get_cached(""), None);
+    }
+
+    #[test]
+    fn translation_manager_cache_overwrites() {
+        let manager = TranslationManager::new();
+        manager.insert_cache("사랑".into(), "love".into());
+        manager.insert_cache("사랑".into(), "affection".into());
+        assert_eq!(manager.get_cached("사랑"), Some("affection".into()));
+    }
+
+    #[test]
+    fn translation_manager_cache_multi_entry() {
+        let manager = TranslationManager::new();
+        manager.insert_cache("사랑".into(), "love".into());
+        manager.insert_cache("우정".into(), "friendship".into());
+        assert_eq!(manager.get_cached("사랑"), Some("love".into()));
+        assert_eq!(manager.get_cached("우정"), Some("friendship".into()));
     }
 }

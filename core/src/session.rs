@@ -46,9 +46,9 @@ impl Session {
 
         let mut file = std::fs::File::create(path).map_err(|e| CoreError::Export(e.to_string()))?;
         for card in &self.cards {
-            let target = card.target.replace('\t', " ").replace('\n', " ");
-            let sentence = card.sentence.replace('\t', " ").replace('\n', " ");
-            let explanation = card.explanation.replace('\t', " ").replace('\n', " ");
+            let target = card.target.replace(['\t', '\n'], " ");
+            let sentence = card.sentence.replace(['\t', '\n'], " ");
+            let explanation = card.explanation.replace(['\t', '\n'], " ");
             writeln!(file, "{target}\t{sentence}\t{explanation}")
                 .map_err(|e| CoreError::Export(e.to_string()))?;
         }

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 
 const STORAGE_KEY = "kaeda-dark-mode";
@@ -16,6 +17,7 @@ export default function App() {
   const [dark, setDark] = useState(getInitialDark);
   const [selectedTokenIndex, setSelectedTokenIndex] = useState(-1);
   const [explanation, setExplanation] = useState("");
+  const [explanationLoading, setExplanationLoading] = useState(false);
   const [savedCard, setSavedCard] = useState(null);
   const [sessionCards, setSessionCards] = useState([]);
   const [viewingCards, setViewingCards] = useState(false);
@@ -46,8 +48,48 @@ export default function App() {
   useEffect(() => {
     setSelectedTokenIndex(-1);
     setExplanation("");
+    setExplanationLoading(false);
     setSavedCard(null);
+    fetchingLemmaRef.current = null;
   }, [currentIndex]);
+
+  const fetchingLemmaRef = useRef(null);
+
+  useEffect(() => {
+    const unlisten = listen("translation-result", (event) => {
+      const { lemma, translation: result } = event.payload;
+      if (fetchingLemmaRef.current !== lemma) return;
+      setExplanationLoading(false);
+      if (result != null) {
+        setExplanation(result);
+      }
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  useEffect(() => {
+    if (selectedTokenIndex < 0) return;
+    const current = subtitles[currentIndex];
+    if (!current || !current.tokens || selectedTokenIndex >= current.tokens.length) return;
+    const lemma = current.tokens[selectedTokenIndex].lemma;
+    if (!lemma.trim()) return;
+    fetchingLemmaRef.current = lemma;
+    setExplanation("");
+    setExplanationLoading(true);
+    invoke("request_translation", { lemma })
+      .then((result) => {
+        if (fetchingLemmaRef.current !== lemma) return;
+        if (result != null) {
+          setExplanation(result);
+          setExplanationLoading(false);
+        }
+      })
+      .catch(() => {
+        if (fetchingLemmaRef.current === lemma) {
+          setExplanationLoading(false);
+        }
+      });
+  }, [selectedTokenIndex, currentIndex, subtitles]);
 
   async function startSession() {
     const srtPath = await open({
@@ -272,11 +314,11 @@ export default function App() {
               </div>
 
               <div className="card-field">
-                <label>Explanation</label>
+                <label>Translation</label>
                 <textarea
                   value={explanation}
                   onChange={(e) => setExplanation(e.target.value)}
-                  placeholder="Enter explanation..."
+                  placeholder={explanationLoading ? "Loading translation..." : "Enter translation..."}
                   rows={4}
                 />
               </div>
