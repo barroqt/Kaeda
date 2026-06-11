@@ -1,8 +1,12 @@
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
+use std::path::Path;
 
 use chrono::Utc;
 use rusqlite::Connection;
+
+use crate::subtitle::CoreError;
 
 pub struct DeckEntry {
     pub lemma: String,
@@ -27,6 +31,12 @@ pub fn init_store(conn: &Connection) -> anyhow::Result<()> {
         CREATE TABLE IF NOT EXISTS known_words (
             lemma   TEXT PRIMARY KEY,
             added_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS known_lines (
+            file_id     TEXT NOT NULL,
+            subtitle_id INTEGER NOT NULL,
+            added_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (file_id, subtitle_id)
         );",
     )?;
     Ok(())
@@ -121,6 +131,75 @@ pub fn add_to_deck(conn: &Connection, entry: &DeckEntry) -> anyhow::Result<()> {
         ],
     )?;
     Ok(())
+}
+
+/// Tracks known subtitle lines per source file.
+///
+/// Persists in the `known_lines` SQLite table:
+/// - `file_id` — identifier for the source subtitle file
+/// - `subtitle_id` — unique subtitle entry index within that file
+pub struct KnownLinesStore {
+    conn: Connection,
+}
+
+impl KnownLinesStore {
+    fn init(&self) -> Result<(), CoreError> {
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS known_lines (
+                file_id     TEXT NOT NULL,
+                subtitle_id INTEGER NOT NULL,
+                added_at    TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (file_id, subtitle_id)
+            );",
+        )?;
+        Ok(())
+    }
+
+    /// Open a file-backed store at `path`.
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, CoreError> {
+        let conn = Connection::open(path)?;
+        let store = Self { conn };
+        store.init()?;
+        Ok(store)
+    }
+
+    /// Create an in-memory store (useful for testing).
+    pub fn in_memory() -> Result<Self, CoreError> {
+        let conn = Connection::open_in_memory()?;
+        let store = Self { conn };
+        store.init()?;
+        Ok(store)
+    }
+
+    /// Mark a subtitle line as known for the given file.
+    pub fn mark_known(&self, file_id: &str, subtitle_id: i64) -> Result<(), CoreError> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO known_lines (file_id, subtitle_id) VALUES (?1, ?2)",
+            rusqlite::params![file_id, subtitle_id],
+        )?;
+        Ok(())
+    }
+
+    /// Check whether a subtitle line has been marked known.
+    pub fn is_known(&self, file_id: &str, subtitle_id: i64) -> Result<bool, CoreError> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM known_lines WHERE file_id = ?1 AND subtitle_id = ?2",
+            rusqlite::params![file_id, subtitle_id],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    /// Return the set of all known subtitle IDs for the given file.
+    pub fn known_ids(&self, file_id: &str) -> Result<HashSet<i64>, CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT subtitle_id FROM known_lines WHERE file_id = ?1")?;
+        let ids: HashSet<i64> = stmt
+            .query_map(rusqlite::params![file_id], |row| row.get(0))?
+            .collect::<Result<HashSet<_>, _>>()?;
+        Ok(ids)
+    }
 }
 
 #[cfg(test)]
@@ -308,5 +387,99 @@ mod tests {
         mark_known(&conn, "가마").unwrap();
         let words = load_known_list(&conn).unwrap();
         assert_eq!(words, vec!["가다", "가마", "나다"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // KnownLinesStore
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn known_lines_store_mark_known_adds_entry() {
+        let store = KnownLinesStore::in_memory().unwrap();
+        store.mark_known("file-1", 1).unwrap();
+        assert!(store.is_known("file-1", 1).unwrap());
+    }
+
+    #[test]
+    fn known_lines_store_mark_known_twice_does_not_error() {
+        let store = KnownLinesStore::in_memory().unwrap();
+        store.mark_known("file-1", 1).unwrap();
+        store.mark_known("file-1", 1).unwrap();
+        assert!(store.is_known("file-1", 1).unwrap());
+    }
+
+    #[test]
+    fn known_lines_store_is_known_returns_false_for_unknown() {
+        let store = KnownLinesStore::in_memory().unwrap();
+        assert!(!store.is_known("file-1", 99).unwrap());
+    }
+
+    #[test]
+    fn known_lines_store_is_known_respects_file_id() {
+        let store = KnownLinesStore::in_memory().unwrap();
+        store.mark_known("file-a", 1).unwrap();
+        assert!(store.is_known("file-a", 1).unwrap());
+        assert!(!store.is_known("file-b", 1).unwrap());
+    }
+
+    #[test]
+    fn known_lines_store_known_ids_returns_expected_set() {
+        let store = KnownLinesStore::in_memory().unwrap();
+        store.mark_known("file-1", 10).unwrap();
+        store.mark_known("file-1", 20).unwrap();
+        store.mark_known("file-1", 30).unwrap();
+        let ids = store.known_ids("file-1").unwrap();
+        let expected: HashSet<i64> = [10, 20, 30].into();
+        assert_eq!(ids, expected);
+    }
+
+    #[test]
+    fn known_lines_store_known_ids_returns_empty_set_when_none() {
+        let store = KnownLinesStore::in_memory().unwrap();
+        let ids = store.known_ids("file-1").unwrap();
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn known_lines_store_known_ids_only_returns_ids_for_specific_file() {
+        let store = KnownLinesStore::in_memory().unwrap();
+        store.mark_known("file-a", 1).unwrap();
+        store.mark_known("file-a", 2).unwrap();
+        store.mark_known("file-b", 1).unwrap();
+        let ids_a = store.known_ids("file-a").unwrap();
+        let ids_b = store.known_ids("file-b").unwrap();
+        assert_eq!(ids_a, [1, 2].into());
+        assert_eq!(ids_b, [1].into());
+    }
+
+    #[test]
+    fn known_lines_store_known_ids_consistent_after_mark_known() {
+        let store = KnownLinesStore::in_memory().unwrap();
+        store.mark_known("f", 1).unwrap();
+        store.mark_known("f", 2).unwrap();
+        let before = store.known_ids("f").unwrap();
+        store.mark_known("f", 1).unwrap();
+        let after = store.known_ids("f").unwrap();
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn known_lines_store_can_be_file_backed() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_known_lines.db");
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let store = KnownLinesStore::open(&path).unwrap();
+            store.mark_known("f", 42).unwrap();
+        }
+
+        {
+            let store = KnownLinesStore::open(&path).unwrap();
+            assert!(store.is_known("f", 42).unwrap());
+            assert_eq!(store.known_ids("f").unwrap(), [42].into());
+        }
+
+        std::fs::remove_file(&path).unwrap();
     }
 }

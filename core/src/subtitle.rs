@@ -15,6 +15,8 @@ pub struct SubtitleEntry {
 pub enum CoreError {
     #[error("failed to read subtitle file: {0}")]
     Io(#[from] std::io::Error),
+    #[error("database error: {0}")]
+    Database(#[from] rusqlite::Error),
 }
 
 pub fn entries_from_srt(path: &Path) -> Result<Vec<SubtitleEntry>, CoreError> {
