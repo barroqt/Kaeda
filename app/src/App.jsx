@@ -28,6 +28,7 @@ export default function App() {
   const navigateRef = useRef(null);
   const tokenNavRef = useRef(null);
   const saveRef = useRef(null);
+  const markKnownRef = useRef(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -153,6 +154,19 @@ export default function App() {
     }
   }
 
+  async function handleMarkKnown() {
+    const current = subtitles[currentIndex];
+    if (!current || current.is_known) return;
+    try {
+      await invoke("mark_line_known", { subtitleId: current.id });
+      const subs = [...subtitles];
+      subs[currentIndex] = { ...subs[currentIndex], is_known: true };
+      setSubtitles(subs);
+    } catch (err) {
+      alert(`Error: ${err}`);
+    }
+  }
+
   async function loadSessionCards() {
     try {
       const cards = await invoke("get_session_cards");
@@ -210,6 +224,7 @@ export default function App() {
   navigateRef.current = navigate;
   tokenNavRef.current = { selectedTokenIndex, subtitles, currentIndex, setSelectedTokenIndex };
   saveRef.current = handleSaveCard;
+  markKnownRef.current = handleMarkKnown;
 
   useEffect(() => {
     function handleKey(e) {
@@ -238,6 +253,9 @@ export default function App() {
       } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         saveRef.current();
+      } else if (e.key === "k" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        markKnownRef.current();
       }
     }
     document.addEventListener("keydown", handleKey);
@@ -260,7 +278,7 @@ export default function App() {
             <div
               key={sub.id}
               className={
-                "subtitle-item" + (i === currentIndex ? " active" : "")
+                "subtitle-item" + (i === currentIndex ? " active" : "") + (sub.is_known ? " known" : "")
               }
               onClick={() => selectIndex(i)}
             >
@@ -292,6 +310,7 @@ export default function App() {
               <p>&uarr; &darr; Navigate subtitles</p>
               <p>&larr; &rarr; Select token</p>
               <p>&#8984;+Enter Save card</p>
+              <p>k Mark line as known</p>
               <p>Click a subtitle to select it</p>
             </div>
           </>
@@ -363,6 +382,17 @@ export default function App() {
                   placeholder={explanationLoading ? "Loading translation..." : "Enter translation..."}
                   rows={4}
                 />
+              </div>
+
+              <div className="known-row">
+                <button
+                  className="known-btn"
+                  onClick={handleMarkKnown}
+                  disabled={current.is_known}
+                >
+                  {current.is_known ? "Known ✓" : "Mark as Known"}
+                </button>
+                <span className="known-hint">k</span>
               </div>
 
               <button

@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Mutex;
 
 use kaeda_core::dictionary;
 use kaeda_core::session::{Card, Session};
+use kaeda_core::store::KnownLinesStore;
 use kaeda_core::subtitle::{SubtitleEntry, entries_from_srt};
 use kaeda_core::tokenizer::KoreanTokenizer;
 use tauri::Emitter;
@@ -46,6 +47,9 @@ struct MiningSessionInner {
     subtitles: Vec<SubtitleEntry>,
     subtitle_tokens: Vec<Vec<TokenDto>>,
     current_index: usize,
+    known_store: Option<KnownLinesStore>,
+    known_ids: HashSet<i64>,
+    source_file_id: String,
 }
 
 pub struct MiningSessionState {
@@ -66,6 +70,9 @@ impl MiningSessionState {
                 subtitles: Vec::new(),
                 subtitle_tokens: Vec::new(),
                 current_index: 0,
+                known_store: None,
+                known_ids: HashSet::new(),
+                source_file_id: String::new(),
             }),
         }
     }
@@ -75,6 +82,7 @@ impl MiningSessionState {
         srt_path: &Path,
         deck_name: String,
         source_file_id: String,
+        known_store: KnownLinesStore,
     ) -> Result<(), String> {
         let subtitles = entries_from_srt(srt_path).map_err(|e| e.to_string())?;
         if subtitles.is_empty() {
@@ -90,12 +98,18 @@ impl MiningSessionState {
                     .map_err(|e| e.to_string())
             })
             .collect::<Result<Vec<_>, String>>()?;
-        let session = Session::new(deck_name, source_file_id);
+        let known_ids = known_store
+            .known_ids(&source_file_id)
+            .map_err(|e| e.to_string())?;
+        let session = Session::new(deck_name, source_file_id.clone());
         let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
         inner.session = Some(session);
         inner.subtitles = subtitles;
         inner.subtitle_tokens = subtitle_tokens;
         inner.current_index = 0;
+        inner.known_store = Some(known_store);
+        inner.known_ids = known_ids;
+        inner.source_file_id = source_file_id;
         Ok(())
     }
 
@@ -110,7 +124,7 @@ impl MiningSessionState {
                 start_time: entry.start_time.clone(),
                 end_time: entry.end_time.clone(),
                 text: entry.text.clone(),
-                is_known: false,
+                is_known: inner.known_ids.contains(&(entry.id as i64)),
                 tokens: tokens.clone(),
             })
             .collect())
@@ -225,11 +239,27 @@ impl MiningSessionState {
         let session = inner.session.as_mut().ok_or("no active session")?;
         session.remove_card(card_id).map_err(|e| e.to_string())
     }
+
+    pub fn mark_line_known(&self, subtitle_id: u32) -> Result<(), String> {
+        let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
+        let store = inner.known_store.as_ref().ok_or("no known lines store")?;
+        store
+            .mark_known(&inner.source_file_id, subtitle_id as i64)
+            .map_err(|e| e.to_string())?;
+        inner.known_ids.insert(subtitle_id as i64);
+        Ok(())
+    }
+
+    pub fn is_line_known(&self, subtitle_id: u32) -> Result<bool, String> {
+        let inner = self.inner.lock().map_err(|e| e.to_string())?;
+        Ok(inner.known_ids.contains(&(subtitle_id as i64)))
+    }
 }
 
 #[tauri::command]
 fn start_session(
     state: tauri::State<'_, MiningSessionState>,
+    app_handle: tauri::AppHandle,
     video_path: String,
     srt_path: String,
     deck_name: String,
@@ -239,7 +269,14 @@ fn start_session(
         .and_then(|s| s.to_str())
         .unwrap_or("unknown")
         .to_string();
-    state.start_session(Path::new(&srt_path), deck_name, source_file_id)
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&app_data_dir).map_err(|e| e.to_string())?;
+    let store_path = app_data_dir.join("known_lines.db");
+    let known_store = KnownLinesStore::open(&store_path).map_err(|e| e.to_string())?;
+    state.start_session(Path::new(&srt_path), deck_name, source_file_id, known_store)
 }
 
 #[tauri::command]
@@ -306,6 +343,22 @@ fn delete_card(state: tauri::State<'_, MiningSessionState>, card_id: u32) -> Res
 }
 
 #[tauri::command]
+fn mark_line_known(
+    state: tauri::State<'_, MiningSessionState>,
+    subtitle_id: u32,
+) -> Result<(), String> {
+    state.mark_line_known(subtitle_id)
+}
+
+#[tauri::command]
+fn is_line_known(
+    state: tauri::State<'_, MiningSessionState>,
+    subtitle_id: u32,
+) -> Result<bool, String> {
+    state.is_line_known(subtitle_id)
+}
+
+#[tauri::command]
 fn request_translation(
     lemma: String,
     app_handle: tauri::AppHandle,
@@ -367,6 +420,8 @@ pub fn run() {
             get_session_cards,
             export_session,
             request_translation,
+            mark_line_known,
+            is_line_known,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {
@@ -395,7 +450,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "test-deck".into(), "video-1".into())
+            .start_session(
+                &srt_path,
+                "test-deck".into(),
+                "video-1".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         let subtitles = state.subtitles().unwrap();
@@ -411,7 +471,12 @@ mod tests {
 
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "test-deck".into(), "video-1".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         assert_eq!(state.current_index().unwrap(), 0);
@@ -424,6 +489,7 @@ mod tests {
             Path::new("/nonexistent/file.srt"),
             "deck".into(),
             "file".into(),
+            KnownLinesStore::in_memory().unwrap(),
         );
         assert!(result.is_err());
     }
@@ -432,7 +498,12 @@ mod tests {
     fn start_session_returns_error_on_empty_file() {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("empty.srt");
-        let result = state.start_session(&srt_path, "deck".into(), "file".into());
+        let result = state.start_session(
+            &srt_path,
+            "deck".into(),
+            "file".into(),
+            KnownLinesStore::in_memory().unwrap(),
+        );
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "no subtitles found in file");
     }
@@ -449,7 +520,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         assert_eq!(state.next_subtitle().unwrap(), 1);
@@ -461,7 +537,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         for _ in 0..10 {
@@ -475,7 +556,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         state.next_subtitle().unwrap();
@@ -490,7 +576,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         assert_eq!(state.previous_subtitle().unwrap(), 0);
@@ -509,7 +600,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         assert_eq!(state.set_current_index(3).unwrap(), 3);
@@ -521,7 +617,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         let result = state.set_current_index(100);
@@ -540,7 +641,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "test-deck".into(), "video-1".into())
+            .start_session(
+                &srt_path,
+                "test-deck".into(),
+                "video-1".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         let card = state.save_card("안녕".into(), "Hello".into()).unwrap();
@@ -570,7 +676,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         state.save_card("target1".into(), "exp1".into()).unwrap();
@@ -600,7 +711,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         let cards = state.session_cards().unwrap();
@@ -612,7 +728,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "test-deck".into(), "video-1".into())
+            .start_session(
+                &srt_path,
+                "test-deck".into(),
+                "video-1".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         state.save_card("안녕".into(), "Hello".into()).unwrap();
@@ -640,7 +761,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "test-deck".into(), "video-1".into())
+            .start_session(
+                &srt_path,
+                "test-deck".into(),
+                "video-1".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         state.save_card("안녕".into(), "Hello".into()).unwrap();
@@ -664,7 +790,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         state.save_card("target1".into(), "exp1".into()).unwrap();
@@ -688,7 +819,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         let subtitles = state.subtitles().unwrap();
@@ -708,7 +844,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         let subtitles = state.subtitles().unwrap();
@@ -729,7 +870,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         let subtitles = state.subtitles().unwrap();
@@ -756,7 +902,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         let subtitles = state.subtitles().unwrap();
@@ -809,7 +960,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         let saved = state.save_card("target1".into(), "exp1".into()).unwrap();
@@ -847,7 +1003,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         let result = state.edit_card(999, "s".into(), "t".into(), "e".into());
@@ -859,7 +1020,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         let saved = state.save_card("target1".into(), "exp1".into()).unwrap();
@@ -884,7 +1050,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         let result = state.delete_card(999);
@@ -896,7 +1067,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         state.save_card("keep".into(), "keep".into()).unwrap();
@@ -917,7 +1093,12 @@ mod tests {
         let state = MiningSessionState::new();
         let srt_path = fixture_path("sample.srt");
         state
-            .start_session(&srt_path, "deck".into(), "file".into())
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
             .unwrap();
 
         state.save_card("keep".into(), "keep".into()).unwrap();
@@ -932,5 +1113,119 @@ mod tests {
         assert_eq!(content, "keep\t안녕하세요 반갑습니다.\tkeep\n");
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn known_lines_are_reflected_in_subtitles_after_mark() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        let store = KnownLinesStore::in_memory().unwrap();
+        state
+            .start_session(&srt_path, "deck".into(), "file".into(), store)
+            .unwrap();
+
+        let subtitles = state.subtitles().unwrap();
+        assert!(!subtitles[0].is_known);
+
+        state.mark_line_known(subtitles[0].id).unwrap();
+
+        let subtitles = state.subtitles().unwrap();
+        assert!(subtitles[0].is_known);
+    }
+
+    #[test]
+    fn known_lines_persist_between_sessions() {
+        let srt_path = fixture_path("sample.srt");
+        let dir = std::env::temp_dir();
+        let db_path = dir.join("kaeda_test_known_lines.db");
+        let _ = std::fs::remove_file(&db_path);
+
+        // Session 1: mark line 1 as known via file-backed store
+        {
+            let store = KnownLinesStore::open(&db_path).unwrap();
+            let state = MiningSessionState::new();
+            state
+                .start_session(&srt_path, "deck".into(), "file".into(), store)
+                .unwrap();
+            state.mark_line_known(1).unwrap();
+
+            let subtitles = state.subtitles().unwrap();
+            assert!(subtitles[0].is_known);
+        }
+
+        // Session 2: reopen the same file-backed store
+        {
+            let store = KnownLinesStore::open(&db_path).unwrap();
+            let state = MiningSessionState::new();
+            state
+                .start_session(&srt_path, "deck".into(), "file".into(), store)
+                .unwrap();
+
+            assert!(state.is_line_known(1).unwrap());
+        }
+
+        // Also verify raw store access
+        let store = KnownLinesStore::open(&db_path).unwrap();
+        assert!(store.is_known("file", 1).unwrap());
+
+        std::fs::remove_file(&db_path).unwrap();
+    }
+
+    #[test]
+    fn known_lines_are_empty_for_new_file() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
+            .unwrap();
+
+        let subtitles = state.subtitles().unwrap();
+        for sub in &subtitles {
+            assert!(!sub.is_known, "subtitle {} should not be known", sub.id);
+        }
+    }
+
+    #[test]
+    fn mark_line_known_is_idempotent() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
+            .unwrap();
+
+        state.mark_line_known(1).unwrap();
+        state.mark_line_known(1).unwrap();
+        state.mark_line_known(1).unwrap();
+
+        let subtitles = state.subtitles().unwrap();
+        assert!(subtitles[0].is_known);
+    }
+
+    #[test]
+    fn is_line_known_returns_correct_state() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+            )
+            .unwrap();
+
+        assert!(!state.is_line_known(1).unwrap());
+        state.mark_line_known(1).unwrap();
+        assert!(state.is_line_known(1).unwrap());
     }
 }

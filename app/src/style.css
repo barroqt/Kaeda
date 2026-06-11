@@ -98,6 +98,14 @@ body {
   background: var(--hover);
 }
 
+.subtitle-item.known {
+  opacity: 0.45;
+}
+
+.subtitle-item.known .text {
+  text-decoration: line-through;
+}
+
 .subtitle-item.active {
   background: var(--accent-bg);
   border-left: 3px solid var(--accent-border);
@@ -291,6 +299,41 @@ body {
 .save-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.known-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.known-btn {
+  flex: 1;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.known-btn:hover:not(:disabled) {
+  background: var(--hover);
+  border-color: var(--accent-border);
+  color: var(--accent-border);
+}
+
+.known-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.known-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
 }
 
 .saved-notice {
