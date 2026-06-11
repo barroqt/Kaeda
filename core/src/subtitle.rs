@@ -21,6 +21,8 @@ pub enum CoreError {
     Tokenize(String),
     #[error("network request failed: {0}")]
     Network(String),
+    #[error("failed to write export file: {0}")]
+    Export(String),
 }
 
 pub fn entries_from_srt(path: &Path) -> Result<Vec<SubtitleEntry>, CoreError> {

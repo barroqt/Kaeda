@@ -296,3 +296,81 @@ body {
   text-align: center;
   transition: background 0.2s, border-color 0.2s, color 0.2s;
 }
+
+#right-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+#right-panel-header h2 {
+  margin-bottom: 0;
+}
+
+.view-toggle {
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.view-toggle:hover {
+  background: var(--hover);
+  border-color: var(--accent-border);
+  color: var(--accent-border);
+}
+
+#session-cards-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.empty-cards {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 24px 0;
+}
+
+.session-card-item {
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.session-card-index {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+}
+
+.session-card-target {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent-border);
+}
+
+.session-card-sentence {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.session-card-explanation {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-style: italic;
+}

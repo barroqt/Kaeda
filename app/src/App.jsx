@@ -25,6 +25,8 @@ export default function App() {
   const [selectedTarget, setSelectedTarget] = useState("");
   const [explanation, setExplanation] = useState("");
   const [savedCard, setSavedCard] = useState(null);
+  const [sessionCards, setSessionCards] = useState([]);
+  const [viewingCards, setViewingCards] = useState(false);
   const navigateRef = useRef(null);
 
   useEffect(() => {
@@ -66,6 +68,8 @@ export default function App() {
         srtPath,
         deckName: "default",
       });
+      setSessionCards([]);
+      setViewingCards(false);
       await loadSubtitles();
     } catch (err) {
       alert(`Error: ${err}`);
@@ -104,6 +108,22 @@ export default function App() {
     } catch (err) {
       alert(`Error: ${err}`);
     }
+  }
+
+  async function loadSessionCards() {
+    try {
+      const cards = await invoke("get_session_cards");
+      setSessionCards(cards);
+    } catch {
+      /* no active session */
+    }
+  }
+
+  async function toggleViewCards() {
+    if (!viewingCards) {
+      await loadSessionCards();
+    }
+    setViewingCards((v) => !v);
   }
 
   navigateRef.current = navigate;
@@ -178,59 +198,86 @@ export default function App() {
       </main>
       {current && (
         <aside id="right-panel">
-          <h2>New Card</h2>
-
-          <div className="card-field">
-            <label>Sentence</label>
-            <div className="card-sentence">{current.text}</div>
+          <div id="right-panel-header">
+            <h2>{viewingCards ? "Session Cards" : "New Card"}</h2>
+            <button className="view-toggle" onClick={toggleViewCards}>
+              {viewingCards ? "Back to Mining" : "View Cards"}
+            </button>
           </div>
 
-          <div className="card-field">
-            <label>Target Word</label>
-            <div className="word-tokens">
-              {splitWords(current.text).map((t) =>
-                t.isSpace ? (
-                  <span key={t.key} className="word-space">
-                    {" "}
-                  </span>
-                ) : (
-                  <span
-                    key={t.key}
-                    className={
-                      "word-token" +
-                      (selectedTarget === t.text ? " selected" : "")
-                    }
-                    onClick={() => setSelectedTarget(t.text)}
-                  >
-                    {t.text}
-                  </span>
-                ),
+          {viewingCards ? (
+            <div id="session-cards-list">
+              {sessionCards.length === 0 ? (
+                <div className="empty-cards">No cards saved yet.</div>
+              ) : (
+                sessionCards.map((card, i) => (
+                  <div key={i} className="session-card-item">
+                    <div className="session-card-index">#{i + 1}</div>
+                    <div className="session-card-target">{card.target}</div>
+                    <div className="session-card-sentence">{card.sentence}</div>
+                    <div className="session-card-explanation">
+                      {card.explanation || "\u2014"}
+                    </div>
+                  </div>
+                ))
               )}
             </div>
-          </div>
+          ) : (
+            <>
+              <div className="card-field">
+                <label>Sentence</label>
+                <div className="card-sentence">{current.text}</div>
+              </div>
 
-          <div className="card-field">
-            <label>Explanation</label>
-            <textarea
-              value={explanation}
-              onChange={(e) => setExplanation(e.target.value)}
-              placeholder="Enter explanation..."
-              rows={4}
-            />
-          </div>
+              <div className="card-field">
+                <label>Target Word</label>
+                <div className="word-tokens">
+                  {splitWords(current.text).map((t) =>
+                    t.isSpace ? (
+                      <span key={t.key} className="word-space">
+                        {" "}
+                      </span>
+                    ) : (
+                      <span
+                        key={t.key}
+                        className={
+                          "word-token" +
+                          (selectedTarget === t.text ? " selected" : "")
+                        }
+                        onClick={() => setSelectedTarget(t.text)}
+                      >
+                        {t.text}
+                      </span>
+                    ),
+                  )}
+                </div>
+              </div>
 
-          <button
-            className="save-btn"
-            onClick={handleSaveCard}
-            disabled={!selectedTarget.trim()}
-          >
-            Save Card
-          </button>
+              <div className="card-field">
+                <label>Explanation</label>
+                <textarea
+                  value={explanation}
+                  onChange={(e) => setExplanation(e.target.value)}
+                  placeholder="Enter explanation..."
+                  rows={4}
+                />
+              </div>
 
-          {savedCard && (
-            <div className="saved-notice">
-              Card saved: {savedCard.target} &mdash; {savedCard.explanation}
-            </div>
+              <button
+                className="save-btn"
+                onClick={handleSaveCard}
+                disabled={!selectedTarget.trim()}
+              >
+                Save Card
+              </button>
+
+              {savedCard && (
+                <div className="saved-notice">
+                  Card saved: {savedCard.target} &mdash;{" "}
+                  {savedCard.explanation}
+                </div>
+              )}
+            </>
           )}
         </aside>
       )}

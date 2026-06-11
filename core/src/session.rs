@@ -1,3 +1,7 @@
+use std::path::Path;
+
+use crate::subtitle::CoreError;
+
 #[derive(Debug, Clone)]
 pub struct Card {
     pub sentence: String,
@@ -36,11 +40,117 @@ impl Session {
     pub fn card_count(&self) -> usize {
         self.cards.len()
     }
+
+    pub fn export_tsv(&self, path: &Path) -> Result<(), CoreError> {
+        use std::io::Write;
+
+        let mut file = std::fs::File::create(path).map_err(|e| CoreError::Export(e.to_string()))?;
+        for card in &self.cards {
+            let target = card.target.replace('\t', " ").replace('\n', " ");
+            let sentence = card.sentence.replace('\t', " ").replace('\n', " ");
+            let explanation = card.explanation.replace('\t', " ").replace('\n', " ");
+            writeln!(file, "{target}\t{sentence}\t{explanation}")
+                .map_err(|e| CoreError::Export(e.to_string()))?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_tsv_empty_session_writes_nothing() {
+        let session = Session::new("deck".to_string(), "file".to_string());
+        let dir = std::env::temp_dir();
+        let path = dir.join("kaeda_test_empty.tsv");
+        session.export_tsv(&path).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.is_empty());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn export_tsv_single_card_writes_correct_row() {
+        let mut session = Session::new("deck".to_string(), "file".to_string());
+        session.add_card(Card {
+            sentence: "안녕하세요".to_string(),
+            target: "안녕".to_string(),
+            explanation: "Hello".to_string(),
+            deck: "deck".to_string(),
+            tags: vec![],
+            file_id: "file".to_string(),
+            subtitle_id: 1,
+        });
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("kaeda_test_single.tsv");
+        session.export_tsv(&path).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "안녕\t안녕하세요\tHello\n");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn export_tsv_multiple_cards_produces_correct_rows() {
+        let mut session = Session::new("deck".to_string(), "file".to_string());
+        session.add_card(Card {
+            sentence: "책을 읽습니다".to_string(),
+            target: "책".to_string(),
+            explanation: "book".to_string(),
+            deck: "deck".to_string(),
+            tags: vec![],
+            file_id: "file".to_string(),
+            subtitle_id: 1,
+        });
+        session.add_card(Card {
+            sentence: "물을 마십니다".to_string(),
+            target: "물".to_string(),
+            explanation: "water".to_string(),
+            deck: "deck".to_string(),
+            tags: vec![],
+            file_id: "file".to_string(),
+            subtitle_id: 2,
+        });
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("kaeda_test_multi.tsv");
+        session.export_tsv(&path).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let expected = "책\t책을 읽습니다\tbook\n물\t물을 마십니다\twater\n";
+        assert_eq!(content, expected);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn export_tsv_sanitizes_tabs_and_newlines() {
+        let mut session = Session::new("deck".to_string(), "file".to_string());
+        session.add_card(Card {
+            sentence: "line1\nline2".to_string(),
+            target: "tar\tget".to_string(),
+            explanation: "exp\tlanation\nsecond".to_string(),
+            deck: "deck".to_string(),
+            tags: vec![],
+            file_id: "file".to_string(),
+            subtitle_id: 1,
+        });
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("kaeda_test_sanitize.tsv");
+        session.export_tsv(&path).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "tar get\tline1 line2\texp lanation second\n");
+
+        let _ = std::fs::remove_file(&path);
+    }
 
     #[test]
     fn session_new_creates_empty_session() {

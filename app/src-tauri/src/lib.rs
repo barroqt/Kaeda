@@ -128,6 +128,18 @@ impl MiningSessionState {
         session.add_card(card);
         Ok(dto)
     }
+
+    pub fn session_cards(&self) -> Result<Vec<CardDto>, String> {
+        let inner = self.inner.lock().map_err(|e| e.to_string())?;
+        let session = inner.session.as_ref().ok_or("no active session")?;
+        Ok(session.cards().iter().cloned().map(CardDto::from).collect())
+    }
+
+    pub fn export_session(&self, path: &Path) -> Result<(), String> {
+        let inner = self.inner.lock().map_err(|e| e.to_string())?;
+        let session = inner.session.as_ref().ok_or("no active session")?;
+        session.export_tsv(path).map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]
@@ -184,6 +196,16 @@ fn save_card(
     state.save_card(target, explanation)
 }
 
+#[tauri::command]
+fn get_session_cards(state: tauri::State<'_, MiningSessionState>) -> Result<Vec<CardDto>, String> {
+    state.session_cards()
+}
+
+#[tauri::command]
+fn export_session(state: tauri::State<'_, MiningSessionState>, path: String) -> Result<(), String> {
+    state.export_session(Path::new(&path))
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -196,6 +218,8 @@ pub fn run() {
             previous_subtitle,
             set_current_index,
             save_card,
+            get_session_cards,
+            export_session,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {
@@ -416,5 +440,99 @@ mod tests {
             inner.session.as_ref().unwrap().cards()[1].sentence,
             "오늘은 날씨가 좋네요."
         );
+    }
+
+    #[test]
+    fn get_session_cards_returns_empty_list_before_session() {
+        let state = MiningSessionState::new();
+        assert!(state.session_cards().is_err());
+    }
+
+    #[test]
+    fn get_session_cards_returns_empty_list_in_active_session() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "deck".into(), "file".into())
+            .unwrap();
+
+        let cards = state.session_cards().unwrap();
+        assert!(cards.is_empty());
+    }
+
+    #[test]
+    fn get_session_cards_returns_cards_after_save() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "test-deck".into(), "video-1".into())
+            .unwrap();
+
+        state.save_card("안녕".into(), "Hello".into()).unwrap();
+
+        let cards = state.session_cards().unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].target, "안녕");
+        assert_eq!(cards[0].explanation, "Hello");
+        assert_eq!(cards[0].sentence, "안녕하세요 반갑습니다.");
+        assert_eq!(cards[0].deck, "test-deck");
+    }
+
+    #[test]
+    fn export_session_returns_error_without_session() {
+        let state = MiningSessionState::new();
+        let dir = std::env::temp_dir();
+        let path = dir.join("kaeda_export_no_session.tsv");
+        let result = state.export_session(&path);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "no active session");
+    }
+
+    #[test]
+    fn export_session_writes_tsv_file() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "test-deck".into(), "video-1".into())
+            .unwrap();
+
+        state.save_card("안녕".into(), "Hello".into()).unwrap();
+        state.set_current_index(1).unwrap();
+        state.save_card("날씨".into(), "Weather".into()).unwrap();
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("kaeda_export_test.tsv");
+        state.export_session(&path).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let expected =
+            "안녕\t안녕하세요 반갑습니다.\tHello\n날씨\t오늘은 날씨가 좋네요.\tWeather\n";
+        assert_eq!(content, expected);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn get_session_cards_reflects_multiple_saves() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(&srt_path, "deck".into(), "file".into())
+            .unwrap();
+
+        state.save_card("target1".into(), "exp1".into()).unwrap();
+        state.set_current_index(1).unwrap();
+        state.save_card("target2".into(), "exp2".into()).unwrap();
+        state.set_current_index(2).unwrap();
+        state.save_card("target3".into(), "exp3".into()).unwrap();
+
+        let cards = state.session_cards().unwrap();
+        assert_eq!(cards.len(), 3);
+        assert_eq!(cards[0].target, "target1");
+        assert_eq!(cards[1].target, "target2");
+        assert_eq!(cards[2].target, "target3");
+        assert_eq!(cards[0].sentence, "안녕하세요 반갑습니다.");
+        assert_eq!(cards[1].sentence, "오늘은 날씨가 좋네요.");
+        assert_eq!(cards[2].sentence, "저는 공부를 하고 있어요.");
     }
 }
