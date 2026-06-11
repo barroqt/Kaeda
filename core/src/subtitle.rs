@@ -17,6 +17,10 @@ pub enum CoreError {
     Io(#[from] std::io::Error),
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
+    #[error("tokenization error: {0}")]
+    Tokenize(String),
+    #[error("network request failed: {0}")]
+    Network(String),
 }
 
 pub fn entries_from_srt(path: &Path) -> Result<Vec<SubtitleEntry>, CoreError> {

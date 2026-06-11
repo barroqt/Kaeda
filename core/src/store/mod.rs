@@ -448,8 +448,8 @@ mod tests {
         store.mark_known("file-b", 1).unwrap();
         let ids_a = store.known_ids("file-a").unwrap();
         let ids_b = store.known_ids("file-b").unwrap();
-        assert_eq!(ids_a, [1, 2].into());
-        assert_eq!(ids_b, [1].into());
+        assert_eq!(ids_a, [1, 2].into_iter().collect::<HashSet<i64>>());
+        assert_eq!(ids_b, [1].into_iter().collect::<HashSet<i64>>());
     }
 
     #[test]
@@ -477,7 +477,10 @@ mod tests {
         {
             let store = KnownLinesStore::open(&path).unwrap();
             assert!(store.is_known("f", 42).unwrap());
-            assert_eq!(store.known_ids("f").unwrap(), [42].into());
+            assert_eq!(
+                store.known_ids("f").unwrap(),
+                [42].into_iter().collect::<HashSet<i64>>()
+            );
         }
 
         std::fs::remove_file(&path).unwrap();
