@@ -1,27 +1,14 @@
 # Kaeda
 
-A **Korean vocabulary mining TUI** that parses `.srt` subtitle files, tokenizes the text, looks up definitions, and helps you build an SRS deck, all from the terminal.
+A tool that helps language learner save their content into flashcards.
 
-## Project structure
+- **srt-miner** (CLI / TUI) — parse `.srt` subtitle files from a terminal, tokenize Korean text,
+  look up definitions, and build an SRS deck.
+- **Kaeda** (Tauri desktop app) — the same mining workflow with a graphical
+  interface: video + SRT playback, card preview, session management, and
+  Anki-compatible TSV export.
 
-```
-kaeda/
-├── core/          # shared library — SRT parsing, tokenizer, dictionary API, store
-├── app/src-tauri/ # future Tauri desktop app (scaffold)
-├── src/           # root binary — CLI + TUI (mine, stats, known commands)
-└── tests/         # test fixtures
-```
-
-The `kaeda-core` library contains all domain logic (parsing, tokenization, dictionary lookups, SQLite persistence). The root binary depends on it and adds the ratatui-based TUI and clap CLI interface.
-
-## Quick start
-
-```bash
-cargo build
-cargo run -- mine tests/fixtures/sample.srt
-```
-
-## Usage
+## CLI / TUI
 
 ### Commands
 
@@ -38,17 +25,15 @@ cargo run -- mine tests/fixtures/sample.srt
 | --------- | ------------------- |
 | `↑` / `↓` | Navigate candidates |
 | `←` / `→` | Navigate subtitles  |
-| `Tab`     | Cycle active pane   |
 | `a`       | Add word to deck    |
 | `k`       | Mark word as known  |
 | `s`       | Skip subtitle       |
 | `q`       | Quit                |
 
-The interface shows three panes: **context** (current subtitle), **candidates** (tokenized words), and **definitions** (dictionary lookup).
+The interface shows three panes: **context** (current subtitle),
+**candidates** (tokenized words), and **definitions** (dictionary lookup).
 
-## Build & run
-
-### CLI / TUI (root binary)
+### Build & run
 
 ```bash
 cargo build                    # builds root binary + core
@@ -58,20 +43,31 @@ cargo run -- known add <word>  # add known word
 cargo run -- known list        # list known words
 ```
 
-### Core library only
+## Kaeda desktop app
+
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (stable)
+- [Node.js](https://nodejs.org/) 18+ and [pnpm](https://pnpm.io/installation)
+- [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/) for
+  your platform (macOS: Xcode CLI tools; Linux: `libwebkit2gtk-4.1-dev` etc.)
+
+### Build & run
 
 ```bash
-cargo build -p kaeda-core
-cargo test -p kaeda-core
+# install JS dependencies
+cd app && pnpm install
+
+# run in development mode
+cd app && cargo tauri dev
 ```
 
-### Tauri desktop app (scaffold)
+### Workflow
 
-```bash
-cargo build -p kaeda-app
-cargo run -p kaeda-app
-```
-
-## Data
-
-All data lives in `.srt-miner/` at the project root — SQLite database, dictionary index, frequency list, and known words list.
+1. Click **Start Session** and pick an `.srt` file
+2. Navigate subtitles with arrow keys or mouse
+3. Click a token to select it as the **target word**
+4. The **Translation** field auto-fills from the Naver dictionary (editable)
+5. **Save Card** (`⌘+Enter`), **Skip** (`s`), or **Mark as Known** (`k`)
+6. Click **View Cards** to review, edit, or delete cards from the session
+7. Click **Export TSV** to produce an Anki-importable file
