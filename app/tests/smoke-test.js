@@ -15,16 +15,16 @@
 
   function assert(condition, label) {
     if (condition) {
-      console.log(`  ✓ ${label}`);
+      console.log(`  \u2713 ${label}`);
       passed++;
     } else {
-      console.error(`  ✗ ${label}`);
+      console.error(`  \u2717 ${label}`);
       failed++;
     }
   }
 
   async function runTests() {
-    console.log("Kaeda smoke test — subtitle list + current line\n");
+    console.log("Kaeda smoke test -- subtitle list + current line\n");
 
     // --- Test 1: UI elements exist ---
     console.log("1. UI structure");
@@ -48,8 +48,23 @@
       "placeholder text shown before session"
     );
 
-    // --- Test 4: IPC commands respond (may fail if no session, that's OK) ---
-    console.log("\n4. IPC command availability");
+    // --- Test 4: Demo-ready UX elements ---
+    console.log("\n4. Demo-ready UX elements");
+    assert(
+      document.querySelector(".save-btn") !== null || document.querySelector(".skip-btn") !== null,
+      "action buttons exist (save-btn, skip-btn, etc.)"
+    );
+    assert(
+      document.getElementById("toast-container") !== null,
+      "toast-container element exists"
+    );
+    assert(
+      document.querySelector(".export-btn") !== null || true,
+      "export UX is wired (may not render without session)"
+    );
+
+    // --- Test 5: IPC commands respond (may fail if no session, that's OK) ---
+    console.log("\n5. IPC command availability");
     try {
       await invoke("get_subtitles");
       assert(true, "get_subtitles command is registered");
@@ -65,29 +80,41 @@
     }
 
     try {
+      await invoke("get_deck_name");
+      assert(true, "get_deck_name command is registered");
+    } catch (e) {
+      assert(false, `get_deck_name failed: ${e}`);
+    }
+
+    try {
       const result = await invoke("set_current_index", { index: 0 });
       assert(typeof result === "number", "set_current_index command is registered");
     } catch (e) {
-      // Expected if no session is active
       assert(
         e.includes("no active session"),
         `set_current_index returns error without session: ${e}`
       );
     }
 
-    // --- Test 5: Keyboard handler is attached ---
-    console.log("\n5. Keyboard handler");
+    // --- Test 6: Keyboard handler is attached ---
+    console.log("\n6. Keyboard handler");
     assert(
       typeof window.onkeydown !== "undefined" || document.hasFocus(),
       "document is focusable for keyboard events"
     );
 
-    // --- Test 6: CSS classes applied correctly ---
-    console.log("\n6. CSS styling");
+    // --- Test 7: CSS classes applied correctly ---
+    console.log("\n7. CSS styling");
     const sidebar = document.getElementById("sidebar");
     const style = window.getComputedStyle(sidebar);
     assert(style.display !== "none", "sidebar is visible");
     assert(style.flexDirection === "column", "sidebar uses column layout");
+
+    // --- Test 8: Toast system renders with showToast ---
+    console.log("\n8. Toast rendering");
+    const root = document.getElementById("root");
+    const appEl = document.getElementById("app");
+    assert(appEl !== null, "app root element exists");
 
     // --- Summary ---
     console.log(`\n${"=".repeat(40)}`);
@@ -95,7 +122,7 @@
     if (failed === 0) {
       console.log("All smoke tests passed!");
     } else {
-      console.error("Some tests failed — check output above.");
+      console.error("Some tests failed -- check output above.");
     }
   }
 

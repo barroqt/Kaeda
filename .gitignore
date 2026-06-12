@@ -28,3 +28,4 @@ wordlist.txt
 app/dist/
 app/node_modules
 *.srt
+*.tsv

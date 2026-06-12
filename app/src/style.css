@@ -147,6 +147,11 @@ body {
   transition: color 0.2s;
 }
 
+#current-deck {
+  font-weight: 600;
+  color: var(--accent-border);
+}
+
 #current-timestamp {
   font-size: 14px;
   color: var(--accent-border);
@@ -279,8 +284,28 @@ body {
   border-color: var(--accent-border);
 }
 
+.action-row {
+  display: flex;
+  gap: 8px;
+}
+
+.action-group {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.action-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+  white-space: nowrap;
+}
+
 .save-btn {
-  padding: 10px 20px;
+  flex: 1;
+  padding: 10px 12px;
   background: var(--accent-bg);
   color: var(--text-primary);
   border: 1px solid var(--accent-border);
@@ -301,15 +326,45 @@ body {
   cursor: not-allowed;
 }
 
-.known-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.skip-btn {
+  flex: 1;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.skip-btn:hover {
+  background: var(--hover);
+  border-color: var(--accent-border);
+  color: var(--accent-border);
+}
+
+.replay-btn {
+  flex: 1;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.replay-btn:hover {
+  background: var(--hover);
+  border-color: var(--accent-border);
+  color: var(--accent-border);
 }
 
 .known-btn {
   flex: 1;
-  padding: 8px 16px;
+  padding: 8px 12px;
   background: transparent;
   color: var(--text-secondary);
   border: 1px solid var(--border);
@@ -330,10 +385,81 @@ body {
   cursor: not-allowed;
 }
 
-.known-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+.export-btn {
+  width: 100%;
+  padding: 10px 16px;
+  background: var(--accent-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 8px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.export-btn:hover {
+  background: var(--accent-border);
+  color: var(--button-hover-text);
+}
+
+#toast-container {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 200;
+  pointer-events: none;
+}
+
+.toast {
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  animation: toast-in 0.25s ease-out;
+  pointer-events: auto;
+  max-width: 360px;
+  word-break: break-word;
+}
+
+.toast-success {
+  background: #2e7d32;
+  color: #fff;
+  border: 1px solid #388e3c;
+}
+
+.toast-error {
+  background: #c62828;
+  color: #fff;
+  border: 1px solid #d32f2f;
+}
+
+.toast-warning {
+  background: #e65100;
+  color: #fff;
+  border: 1px solid #ef6c00;
+}
+
+.toast-info {
+  background: var(--accent-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--accent-border);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .saved-notice {
@@ -356,6 +482,22 @@ body {
 
 #right-panel-header h2 {
   margin-bottom: 0;
+}
+
+#right-panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#deck-label {
+  font-size: 11px;
+  color: var(--accent-border);
+  background: var(--accent-bg);
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+  font-weight: 600;
 }
 
 .view-toggle {

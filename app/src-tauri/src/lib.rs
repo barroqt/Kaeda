@@ -250,6 +250,12 @@ impl MiningSessionState {
         Ok(())
     }
 
+    pub fn deck_name(&self) -> Result<String, String> {
+        let inner = self.inner.lock().map_err(|e| e.to_string())?;
+        let session = inner.session.as_ref().ok_or("no active session")?;
+        Ok(session.deck_name.clone())
+    }
+
     pub fn is_line_known(&self, subtitle_id: u32) -> Result<bool, String> {
         let inner = self.inner.lock().map_err(|e| e.to_string())?;
         Ok(inner.known_ids.contains(&(subtitle_id as i64)))
@@ -351,6 +357,11 @@ fn mark_line_known(
 }
 
 #[tauri::command]
+fn get_deck_name(state: tauri::State<'_, MiningSessionState>) -> Result<String, String> {
+    state.deck_name()
+}
+
+#[tauri::command]
 fn is_line_known(
     state: tauri::State<'_, MiningSessionState>,
     subtitle_id: u32,
@@ -418,6 +429,7 @@ pub fn run() {
             edit_card,
             delete_card,
             get_session_cards,
+            get_deck_name,
             export_session,
             request_translation,
             mark_line_known,

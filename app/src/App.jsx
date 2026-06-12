@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 
 const STORAGE_KEY = "kaeda-dark-mode";
 
@@ -25,10 +25,21 @@ export default function App() {
   const [editSentence, setEditSentence] = useState("");
   const [editTarget, setEditTarget] = useState("");
   const [editExplanation, setEditExplanation] = useState("");
+  const [deckName, setDeckName] = useState("");
+  const [toasts, setToasts] = useState([]);
   const navigateRef = useRef(null);
   const tokenNavRef = useRef(null);
   const saveRef = useRef(null);
   const markKnownRef = useRef(null);
+  const toastIdRef = useRef(0);
+
+  function showToast(message, type = "info") {
+    const id = ++toastIdRef.current;
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -58,6 +69,11 @@ export default function App() {
     fetchingLemmaRef.current = null;
   }, [currentIndex]);
 
+  useEffect(() => {
+    const el = document.querySelector(".subtitle-item.active");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [currentIndex]);
+
   const fetchingLemmaRef = useRef(null);
 
   useEffect(() => {
@@ -67,6 +83,8 @@ export default function App() {
       setExplanationLoading(false);
       if (result != null) {
         setExplanation(result);
+      } else {
+        showToast("Dictionary lookup returned no result", "warning");
       }
     });
     return () => { unlisten.then((fn) => fn()); };
@@ -92,6 +110,7 @@ export default function App() {
       .catch(() => {
         if (fetchingLemmaRef.current === lemma) {
           setExplanationLoading(false);
+          showToast("Dictionary lookup failed", "error");
         }
       });
   }, [selectedTokenIndex, currentIndex, subtitles]);
@@ -112,8 +131,10 @@ export default function App() {
       setSessionCards([]);
       setViewingCards(false);
       await loadSubtitles();
+      const name = await invoke("get_deck_name");
+      setDeckName(name);
     } catch (err) {
-      alert(`Error: ${err}`);
+      showToast(`Error: ${err}`, "error");
     }
   }
 
@@ -149,8 +170,9 @@ export default function App() {
       });
       setSavedCard(card);
       setExplanation("");
+      showToast("Card saved", "success");
     } catch (err) {
-      alert(`Error: ${err}`);
+      showToast(`Error saving card: ${err}`, "error");
     }
   }
 
@@ -162,9 +184,18 @@ export default function App() {
       const subs = [...subtitles];
       subs[currentIndex] = { ...subs[currentIndex], is_known: true };
       setSubtitles(subs);
+      showToast("Line marked as known", "success");
     } catch (err) {
-      alert(`Error: ${err}`);
+      showToast(`Error: ${err}`, "error");
     }
+  }
+
+  async function handleSkip() {
+    await navigate(1);
+  }
+
+  function handleReplay() {
+    showToast("Audio replay coming soon", "info");
   }
 
   async function loadSessionCards() {
@@ -181,6 +212,20 @@ export default function App() {
       await loadSessionCards();
     }
     setViewingCards((v) => !v);
+  }
+
+  async function handleExport() {
+    const path = await save({
+      filters: [{ name: "TSV files", extensions: ["tsv"] }],
+      defaultPath: "kaeda-cards.tsv",
+    });
+    if (!path) return;
+    try {
+      await invoke("export_session", { path });
+      showToast(`Exported to ${path}`, "success");
+    } catch (err) {
+      showToast(`Export failed: ${err}`, "error");
+    }
   }
 
   function openEditDialog(card) {
@@ -205,8 +250,9 @@ export default function App() {
       });
       closeEditDialog();
       await loadSessionCards();
+      showToast("Card updated", "success");
     } catch (err) {
-      alert(`Error saving card: ${err}`);
+      showToast(`Error saving card: ${err}`, "error");
     }
   }
 
@@ -216,8 +262,9 @@ export default function App() {
       await invoke("delete_card", { cardId });
       closeEditDialog();
       await loadSessionCards();
+      showToast("Card deleted", "success");
     } catch (err) {
-      alert(`Error deleting card: ${err}`);
+      showToast(`Error deleting card: ${err}`, "error");
     }
   }
 
@@ -227,7 +274,13 @@ export default function App() {
   markKnownRef.current = handleMarkKnown;
 
   useEffect(() => {
+    function isInputFocused() {
+      const tag = document.activeElement?.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA";
+    }
+
     function handleKey(e) {
+      if (isInputFocused()) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
         navigateRef.current(1);
@@ -256,6 +309,9 @@ export default function App() {
       } else if (e.key === "k" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         markKnownRef.current();
+      } else if (e.key === "s" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        navigateRef.current(1);
       }
     }
     document.addEventListener("keydown", handleKey);
@@ -295,6 +351,7 @@ export default function App() {
           <div id="current-subtitle">
             <div id="current-index">
               {currentIndex + 1} / {subtitles.length}
+              {deckName && <span id="current-deck"> &mdash; Deck: {deckName}</span>}
             </div>
             <div id="current-timestamp">
               {current.start_time} &rarr; {current.end_time}
@@ -311,6 +368,7 @@ export default function App() {
               <p>&larr; &rarr; Select token</p>
               <p>&#8984;+Enter Save card</p>
               <p>k Mark line as known</p>
+              <p>s Skip line</p>
               <p>Click a subtitle to select it</p>
             </div>
           </>
@@ -320,9 +378,12 @@ export default function App() {
         <aside id="right-panel">
           <div id="right-panel-header">
             <h2>{viewingCards ? "Session Cards" : "New Card"}</h2>
-            <button className="view-toggle" onClick={toggleViewCards}>
-              {viewingCards ? "Back to Mining" : "View Cards"}
-            </button>
+            <div id="right-panel-header-actions">
+              {deckName && <span id="deck-label">{deckName}</span>}
+              <button className="view-toggle" onClick={toggleViewCards}>
+                {viewingCards ? "Back to Mining" : "View Cards"}
+              </button>
+            </div>
           </div>
 
           {viewingCards ? (
@@ -341,6 +402,9 @@ export default function App() {
                   </div>
                 ))
               )}
+              <button className="export-btn" onClick={handleExport}>
+                Export TSV
+              </button>
             </div>
           ) : (
             <>
@@ -384,24 +448,50 @@ export default function App() {
                 />
               </div>
 
-              <div className="known-row">
-                <button
-                  className="known-btn"
-                  onClick={handleMarkKnown}
-                  disabled={current.is_known}
-                >
-                  {current.is_known ? "Known ✓" : "Mark as Known"}
-                </button>
-                <span className="known-hint">k</span>
+              <div className="action-row">
+                <div className="action-group">
+                  <button
+                    className="skip-btn"
+                    onClick={handleSkip}
+                    title="Skip to next line"
+                  >
+                    Skip
+                  </button>
+                  <span className="action-hint">s</span>
+                </div>
+                <div className="action-group">
+                  <button
+                    className="replay-btn"
+                    onClick={handleReplay}
+                    title="Replay audio (coming soon)"
+                  >
+                    Replay
+                  </button>
+                </div>
               </div>
 
-              <button
-                className="save-btn"
-                onClick={handleSaveCard}
-                disabled={selectedTokenIndex < 0}
-              >
-                Save Card
-              </button>
+              <div className="action-row">
+                <div className="action-group">
+                  <button
+                    className="known-btn"
+                    onClick={handleMarkKnown}
+                    disabled={current.is_known}
+                  >
+                    {current.is_known ? "Known \u2713" : "Mark as Known"}
+                  </button>
+                  <span className="action-hint">k</span>
+                </div>
+                <div className="action-group">
+                  <button
+                    className="save-btn"
+                    onClick={handleSaveCard}
+                    disabled={selectedTokenIndex < 0}
+                  >
+                    Save Card
+                  </button>
+                  <span className="action-hint">&#8984;+Enter</span>
+                </div>
+              </div>
 
               {savedCard && (
                 <div className="saved-notice">
@@ -460,6 +550,14 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <div id="toast-container">
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast toast-${t.type}`}>
+            {t.message}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
