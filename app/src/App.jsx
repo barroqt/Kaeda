@@ -27,6 +27,7 @@ export default function App() {
   const [editTarget, setEditTarget] = useState("");
   const [editExplanation, setEditExplanation] = useState("");
   const [deckName, setDeckName] = useState("");
+  const [videoPath, setVideoPath] = useState(null);
   const [toasts, setToasts] = useState([]);
   const navigateRef = useRef(null);
   const tokenNavRef = useRef(null);
@@ -51,8 +52,10 @@ export default function App() {
     try {
       const subs = await invoke("get_subtitles");
       const idx = await invoke("get_current_index");
+      const vp = await invoke("get_video_path");
       setSubtitles(subs);
       setCurrentIndex(idx);
+      setVideoPath(vp);
     } catch {
       /* no active session */
     }
@@ -123,14 +126,23 @@ export default function App() {
     });
     if (!srtPath) return;
 
+    const vidPath = await open({
+      multiple: false,
+      filters: [
+        { name: "Video files", extensions: ["mp4", "mkv", "avi", "mov"] },
+      ],
+    });
+    if (!vidPath) return;
+
     try {
       await invoke("start_session", {
-        videoPath: srtPath,
+        videoPath: vidPath,
         srtPath,
         deckName: "default",
       });
       setSessionCards([]);
       setViewingCards(false);
+      setVideoPath(vidPath);
       await loadSubtitles();
       const name = await invoke("get_deck_name");
       setDeckName(name);
@@ -350,7 +362,7 @@ export default function App() {
       <main id="main-panel" className={current ? "has-session" : ""}>
         {current ? (
           <>
-            <VideoPane />
+            <VideoPane videoPath={videoPath} />
             <div id="current-subtitle">
               <div id="current-index">
                 {currentIndex + 1} / {subtitles.length}

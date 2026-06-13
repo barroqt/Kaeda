@@ -6,8 +6,8 @@ settings:
 
 dependencies:
   '@tauri-apps/api':
-    specifier: ^2
-    version: 2.0.0
+    specifier: ^2.11.0
+    version: 2.11.0
   '@tauri-apps/plugin-dialog':
     specifier: ^2.7.1
     version: 2.7.1
@@ -665,10 +665,6 @@ packages:
     requiresBuild: true
     dev: true
     optional: true
-
-  /@tauri-apps/api@2.0.0:
-    resolution: {integrity: sha512-moKgCp2EX7X5GiOx/G/bmoEpkFQVVmyS98UaJU4xUVzan+E1BdwlAKcbip+cGldshYOqL4JSwAEN1OkRXeug0Q==}
-    dev: false
 
   /@tauri-apps/api@2.11.0:
     resolution: {integrity: sha512-7CinYODhky9lmO23xHnUFv0Xt43fbtWMyxZcLcRBlFkcgXKuEirBvHpmtJ89YMhyeGcq20Wuc47Fa4XjyniywA==}
