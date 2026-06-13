@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import VideoPane from "./components/VideoPane";
 
 const STORAGE_KEY = "kaeda-dark-mode";
 
@@ -346,18 +347,21 @@ export default function App() {
           ))}
         </div>
       </aside>
-      <main id="main-panel">
+      <main id="main-panel" className={current ? "has-session" : ""}>
         {current ? (
-          <div id="current-subtitle">
-            <div id="current-index">
-              {currentIndex + 1} / {subtitles.length}
-              {deckName && <span id="current-deck"> &mdash; Deck: {deckName}</span>}
+          <>
+            <VideoPane />
+            <div id="current-subtitle">
+              <div id="current-index">
+                {currentIndex + 1} / {subtitles.length}
+                {deckName && <span id="current-deck"> &mdash; Deck: {deckName}</span>}
+              </div>
+              <div id="current-timestamp">
+                {current.start_time} &rarr; {current.end_time}
+              </div>
+              <div id="current-text">{current.text}</div>
             </div>
-            <div id="current-timestamp">
-              {current.start_time} &rarr; {current.end_time}
-            </div>
-            <div id="current-text">{current.text}</div>
-          </div>
+          </>
         ) : (
           <>
             <div id="current-subtitle">

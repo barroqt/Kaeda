@@ -135,6 +135,37 @@ body {
   padding: 40px;
 }
 
+#main-panel.has-session {
+  justify-content: flex-start;
+  padding: 0;
+}
+
+#video-pane {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  padding: 40px 40px 16px;
+  min-height: 0;
+}
+
+#video-container {
+  width: 100%;
+  max-width: 720px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px;
+}
+
+#video-container video {
+  width: 100%;
+  display: block;
+  background: #000;
+  border-radius: 2px;
+}
+
 #current-subtitle {
   max-width: 600px;
   text-align: center;
