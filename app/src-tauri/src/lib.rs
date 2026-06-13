@@ -1,11 +1,13 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use kaeda_core::dictionary;
 use kaeda_core::session::{Card, Session};
 use kaeda_core::store::KnownLinesStore;
-use kaeda_core::subtitle::{SubtitleEntry, entries_from_srt, srt_timestamp_to_ms};
+use kaeda_core::subtitle::{
+    SubtitleEntry, SubtitleSource, prepare_session_subtitles, srt_timestamp_to_ms,
+};
 use kaeda_core::tokenizer::KoreanTokenizer;
 use tauri::Emitter;
 use tauri::Manager;
@@ -87,7 +89,11 @@ impl MiningSessionState {
         known_store: KnownLinesStore,
         video_path: String,
     ) -> Result<(), String> {
-        let subtitles = entries_from_srt(srt_path).map_err(|e| e.to_string())?;
+        let source = SubtitleSource::ExternalSrt {
+            srt_path: srt_path.to_path_buf(),
+            video_path: Some(PathBuf::from(&video_path)),
+        };
+        let subtitles = prepare_session_subtitles(source).map_err(|e| e.to_string())?;
         if subtitles.is_empty() {
             return Err("no subtitles found in file".to_string());
         }

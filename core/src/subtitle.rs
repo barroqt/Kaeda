@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::util::strip_html_tags;
@@ -25,6 +25,41 @@ pub enum CoreError {
     Export(String),
     #[error("card with id {0} not found")]
     CardNotFound(u32),
+}
+
+#[derive(Debug, Clone)]
+pub enum SubtitleSource {
+    ExternalSrt {
+        srt_path: PathBuf,
+        video_path: Option<PathBuf>,
+    },
+    Embedded {
+        video_path: PathBuf,
+    },
+}
+
+#[derive(Debug, Error)]
+pub enum ExtractError {
+    #[error("unsupported subtitle source: embedded subtitles not yet implemented")]
+    UnsupportedForNow,
+    #[error("failed to read subtitle file: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("subtitle parsing error: {0}")]
+    Parse(String),
+}
+
+pub fn prepare_session_subtitles(
+    source: SubtitleSource,
+) -> Result<Vec<SubtitleEntry>, ExtractError> {
+    match source {
+        SubtitleSource::ExternalSrt { srt_path, .. } => {
+            entries_from_srt(&srt_path).map_err(|e| match e {
+                CoreError::Io(io) => ExtractError::Io(io),
+                other => ExtractError::Parse(other.to_string()),
+            })
+        }
+        SubtitleSource::Embedded { .. } => Err(ExtractError::UnsupportedForNow),
+    }
 }
 
 pub fn entries_from_srt(path: &Path) -> Result<Vec<SubtitleEntry>, CoreError> {
@@ -146,5 +181,87 @@ mod tests {
         let path = fixture_path("empty.srt");
         let entries = entries_from_srt(&path).unwrap();
         assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn prepare_session_subtitles_external_srt_returns_correct_count() {
+        let path = fixture_path("sample.srt");
+        let source = SubtitleSource::ExternalSrt {
+            srt_path: path,
+            video_path: None,
+        };
+        let entries = prepare_session_subtitles(source).unwrap();
+        assert_eq!(entries.len(), 5);
+    }
+
+    #[test]
+    fn prepare_session_subtitles_preserves_timestamps() {
+        let path = fixture_path("sample.srt");
+        let source = SubtitleSource::ExternalSrt {
+            srt_path: path,
+            video_path: None,
+        };
+        let entries = prepare_session_subtitles(source).unwrap();
+        assert_eq!(entries[0].start_time, "00:00:01,000");
+        assert_eq!(entries[0].end_time, "00:00:04,000");
+    }
+
+    #[test]
+    fn prepare_session_subtitles_strips_html_tags() {
+        let path = fixture_path("sample.srt");
+        let source = SubtitleSource::ExternalSrt {
+            srt_path: path,
+            video_path: None,
+        };
+        let entries = prepare_session_subtitles(source).unwrap();
+        assert_eq!(entries[0].text, "안녕하세요 반갑습니다.");
+    }
+
+    #[test]
+    fn prepare_session_subtitles_skips_malformed_blocks() {
+        let path = fixture_path("sample_malformed.srt");
+        let source = SubtitleSource::ExternalSrt {
+            srt_path: path,
+            video_path: None,
+        };
+        let entries = prepare_session_subtitles(source).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].id, 1);
+        assert_eq!(entries[1].id, 4);
+    }
+
+    #[test]
+    fn prepare_session_subtitles_empty_file_returns_empty() {
+        let path = fixture_path("empty.srt");
+        let source = SubtitleSource::ExternalSrt {
+            srt_path: path,
+            video_path: None,
+        };
+        let entries = prepare_session_subtitles(source).unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn prepare_session_subtitles_embedded_returns_unsupported() {
+        let source = SubtitleSource::Embedded {
+            video_path: PathBuf::from("/videos/test.mp4"),
+        };
+        let result = prepare_session_subtitles(source);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ExtractError::UnsupportedForNow
+        ));
+    }
+
+    #[test]
+    fn prepare_session_subtitles_missing_file_returns_io_error() {
+        let source = SubtitleSource::ExternalSrt {
+            srt_path: PathBuf::from("/nonexistent/file.srt"),
+            video_path: None,
+        };
+        let result = prepare_session_subtitles(source);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ExtractError::Io(_)));
     }
 }

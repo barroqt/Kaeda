@@ -1,4 +1,7 @@
-pub use crate::subtitle::{CoreError, SubtitleEntry, entries_from_srt};
+pub use crate::subtitle::{
+    CoreError, ExtractError, SubtitleEntry, SubtitleSource, entries_from_srt,
+    prepare_session_subtitles,
+};
 
 #[cfg(test)]
 mod tests {
