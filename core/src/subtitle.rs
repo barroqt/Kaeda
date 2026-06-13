@@ -56,14 +56,19 @@ pub enum ExtractError {
 impl From<embedded_subtitles::SubtitleExtractError> for ExtractError {
     fn from(e: embedded_subtitles::SubtitleExtractError) -> Self {
         match e {
-            embedded_subtitles::SubtitleExtractError::Open(msg) => ExtractError::Open(msg),
-            embedded_subtitles::SubtitleExtractError::NoSubtitleTrack => {
+            embedded_subtitles::SubtitleExtractError::NoSubtitleTracksFound => {
                 ExtractError::NoSubtitleTrack
             }
-            embedded_subtitles::SubtitleExtractError::Extraction(msg) => {
+            embedded_subtitles::SubtitleExtractError::UnsupportedTextFormat(msg) => {
                 ExtractError::Extraction(msg)
             }
-            embedded_subtitles::SubtitleExtractError::Write(io) => ExtractError::Io(io),
+            embedded_subtitles::SubtitleExtractError::ImageBasedSubtitles => {
+                ExtractError::Extraction("image-based subtitles are not supported".into())
+            }
+            embedded_subtitles::SubtitleExtractError::IoError(io) => ExtractError::Io(io),
+            embedded_subtitles::SubtitleExtractError::InternalError(msg) => {
+                ExtractError::Extraction(msg)
+            }
         }
     }
 }
@@ -289,15 +294,15 @@ mod tests {
     }
 
     #[test]
-    fn prepare_session_subtitles_embedded_missing_file_returns_open_error() {
+    fn prepare_session_subtitles_embedded_missing_file_returns_extraction_error() {
         let source = SubtitleSource::Embedded {
             video_path: PathBuf::from("/nonexistent/video.mkv"),
         };
         let result = prepare_session_subtitles(source);
         assert!(result.is_err());
         assert!(
-            matches!(result.unwrap_err(), ExtractError::Open(_)),
-            "expected Open error for missing video file"
+            matches!(result.unwrap_err(), ExtractError::Extraction(_)),
+            "expected Extraction error for missing video file"
         );
     }
 

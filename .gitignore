@@ -1,4 +1,4 @@
-/target
+# Agents
 guidelines.md
 steps.md
 progression.md
@@ -18,6 +18,7 @@ ISSUES.md
 .DS_Store
 
 # Rust
+/target
 **/*.rs.bk
 
 # Runtime artifacts (created at project root during testing)
@@ -30,3 +31,6 @@ app/node_modules
 app/videos
 *.srt
 *.tsv
+
+# Cline
+.clinerules
