@@ -28,6 +28,8 @@ export default function App() {
   const [editExplanation, setEditExplanation] = useState("");
   const [deckName, setDeckName] = useState("");
   const [videoPath, setVideoPath] = useState(null);
+  const [sessionMode, setSessionMode] = useState(null);
+  const [showNewSessionModal, setShowNewSessionModal] = useState(false);
   const [toasts, setToasts] = useState([]);
   const navigateRef = useRef(null);
   const tokenNavRef = useRef(null);
@@ -119,7 +121,12 @@ export default function App() {
       });
   }, [selectedTokenIndex, currentIndex, subtitles]);
 
-  async function startSession() {
+  function openNewSessionModal() {
+    setShowNewSessionModal(true);
+  }
+
+  async function startExternalSession() {
+    setShowNewSessionModal(false);
     const srtPath = await open({
       multiple: false,
       filters: [{ name: "SRT subtitles", extensions: ["srt"] }],
@@ -143,6 +150,34 @@ export default function App() {
       setSessionCards([]);
       setViewingCards(false);
       setVideoPath(vidPath);
+      setSessionMode("external");
+      await loadSubtitles();
+      const name = await invoke("get_deck_name");
+      setDeckName(name);
+    } catch (err) {
+      showToast(`Error: ${err}`, "error");
+    }
+  }
+
+  async function startEmbeddedSession() {
+    setShowNewSessionModal(false);
+    const vidPath = await open({
+      multiple: false,
+      filters: [
+        { name: "Video files", extensions: ["mp4", "mkv", "avi", "mov"] },
+      ],
+    });
+    if (!vidPath) return;
+
+    try {
+      await invoke("start_embedded_session", {
+        videoPath: vidPath,
+        deckName: "default",
+      });
+      setSessionCards([]);
+      setViewingCards(false);
+      setVideoPath(vidPath);
+      setSessionMode("embedded");
       await loadSubtitles();
       const name = await invoke("get_deck_name");
       setDeckName(name);
@@ -337,11 +372,18 @@ export default function App() {
     <div id="app">
       <aside id="sidebar">
         <div id="toolbar">
-          <button onClick={startSession}>Start Session</button>
+          <button onClick={openNewSessionModal}>New Session</button>
           <button onClick={() => setDark((d) => !d)}>
             {dark ? "Light" : "Dark"}
           </button>
         </div>
+        {current && (
+          <div id="session-info">
+            <span id="session-progress">{currentIndex + 1} / {subtitles.length}</span>
+            {deckName && <span id="session-deck">{deckName}</span>}
+            {sessionMode && <span id="session-source">{sessionMode === "external" ? "SRT" : "Embedded"}</span>}
+          </div>
+        )}
         <div id="subtitle-list">
           {subtitles.map((sub, i) => (
             <div
@@ -361,19 +403,7 @@ export default function App() {
       </aside>
       <main id="main-panel" className={current ? "has-session" : ""}>
         {current ? (
-          <>
-            <VideoPane videoPath={videoPath} />
-            <div id="current-subtitle">
-              <div id="current-index">
-                {currentIndex + 1} / {subtitles.length}
-                {deckName && <span id="current-deck"> &mdash; Deck: {deckName}</span>}
-              </div>
-              <div id="current-timestamp">
-                {current.start_time} &rarr; {current.end_time}
-              </div>
-              <div id="current-text">{current.text}</div>
-            </div>
-          </>
+          <VideoPane videoPath={videoPath} />
         ) : (
           <>
             <div id="current-subtitle">
@@ -563,6 +593,33 @@ export default function App() {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showNewSessionModal && (
+        <div className="dialog-overlay" onClick={() => setShowNewSessionModal(false)}>
+          <div className="dialog new-session-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>New Session</h3>
+            <p className="dialog-subtitle">Choose subtitle source</p>
+
+            <div className="session-mode-option" onClick={startExternalSession}>
+              <div className="session-mode-text">
+                <strong>Use external SRT</strong>
+                <span className="session-mode-desc">Select an SRT file and a video file</span>
+              </div>
+            </div>
+
+            <div className="session-mode-option" onClick={startEmbeddedSession}>
+              <div className="session-mode-text">
+                <strong>Use subtitles embedded in video</strong>
+                <span className="session-mode-desc">Select a video file only</span>
+              </div>
+            </div>
+
+            <button className="dialog-btn dialog-btn-cancel" onClick={() => setShowNewSessionModal(false)}>
+              Cancel
+            </button>
           </div>
         </div>
       )}

@@ -123,6 +123,46 @@ impl MiningSessionState {
         Ok(())
     }
 
+    pub fn start_embedded_session(
+        &self,
+        deck_name: String,
+        source_file_id: String,
+        known_store: KnownLinesStore,
+        video_path: String,
+    ) -> Result<(), String> {
+        let source = SubtitleSource::Embedded {
+            video_path: PathBuf::from(&video_path),
+        };
+        let subtitles = prepare_session_subtitles(source).map_err(|e| e.to_string())?;
+        if subtitles.is_empty() {
+            return Err("no subtitles found in file".to_string());
+        }
+        let tokenizer = KoreanTokenizer::new().map_err(|e| e.to_string())?;
+        let subtitle_tokens: Vec<Vec<TokenDto>> = subtitles
+            .iter()
+            .map(|sub| {
+                tokenizer
+                    .tokenize(&sub.text)
+                    .map(|tokens| tokens.iter().map(TokenDto::from).collect())
+                    .map_err(|e| e.to_string())
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let known_ids = known_store
+            .known_ids(&source_file_id)
+            .map_err(|e| e.to_string())?;
+        let session = Session::new(deck_name, source_file_id.clone());
+        let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
+        inner.session = Some(session);
+        inner.subtitles = subtitles;
+        inner.subtitle_tokens = subtitle_tokens;
+        inner.current_index = 0;
+        inner.known_store = Some(known_store);
+        inner.known_ids = known_ids;
+        inner.source_file_id = source_file_id;
+        inner.video_path = video_path;
+        Ok(())
+    }
+
     pub fn subtitles(&self) -> Result<Vec<SubtitleDto>, String> {
         let inner = self.inner.lock().map_err(|e| e.to_string())?;
         Ok(inner
@@ -317,6 +357,28 @@ fn start_session(
 }
 
 #[tauri::command]
+fn start_embedded_session(
+    state: tauri::State<'_, MiningSessionState>,
+    app_handle: tauri::AppHandle,
+    video_path: String,
+    deck_name: String,
+) -> Result<(), String> {
+    let source_file_id = Path::new(&video_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&app_data_dir).map_err(|e| e.to_string())?;
+    let store_path = app_data_dir.join("known_lines.db");
+    let known_store = KnownLinesStore::open(&store_path).map_err(|e| e.to_string())?;
+    state.start_embedded_session(deck_name, source_file_id, known_store, video_path)
+}
+
+#[tauri::command]
 fn get_subtitles(state: tauri::State<'_, MiningSessionState>) -> Result<Vec<SubtitleDto>, String> {
     state.subtitles()
 }
@@ -456,6 +518,7 @@ pub fn run() {
         .manage(TranslationManager::new())
         .invoke_handler(tauri::generate_handler![
             start_session,
+            start_embedded_session,
             get_subtitles,
             get_current_index,
             next_subtitle,
@@ -1357,6 +1420,19 @@ mod tests {
 
         let subtitles = state.subtitles().unwrap();
         assert!(subtitles[0].is_known);
+    }
+
+    #[test]
+    fn start_embedded_session_returns_error_not_implemented_yet() {
+        let state = MiningSessionState::new();
+        let result = state.start_embedded_session(
+            "deck".into(),
+            "file".into(),
+            KnownLinesStore::in_memory().unwrap(),
+            "/videos/test.mp4".into(),
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("unsupported subtitle source"));
     }
 
     #[test]

@@ -146,13 +146,13 @@ body {
   justify-content: center;
   align-items: center;
   width: 100%;
-  padding: 40px 40px 16px;
+  padding: 16px 24px;
   min-height: 0;
 }
 
 #video-container {
   width: 100%;
-  max-width: 720px;
+  max-width: 1100px;
   background: var(--bg-sidebar);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -171,30 +171,44 @@ body {
   text-align: center;
 }
 
-#current-index {
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-  transition: color 0.2s;
-}
-
-#current-deck {
-  font-weight: 600;
-  color: var(--accent-border);
-}
-
-#current-timestamp {
-  font-size: 14px;
-  color: var(--accent-border);
-  margin-bottom: 16px;
-  font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
-  transition: color 0.2s;
-}
-
 #current-text {
   font-size: 22px;
   line-height: 1.5;
   color: var(--text-primary);
+}
+
+#session-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: border-color 0.2s;
+}
+
+#session-progress {
+  font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+#session-deck {
+  color: var(--accent-border);
+  font-weight: 500;
+}
+
+#session-source {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--accent-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--accent-border);
+  font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+  font-weight: 600;
 }
 
 #help-text {
@@ -723,4 +737,53 @@ body {
 .dialog-btn-cancel:hover {
   background: var(--hover);
   color: var(--text-primary);
+}
+
+.dialog-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: -8px;
+}
+
+.new-session-dialog {
+  gap: 12px;
+}
+
+.session-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.session-mode-option:hover {
+  background: var(--hover);
+  border-color: var(--accent-border);
+}
+
+.session-mode-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-mode-text strong {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.session-mode-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+#session-mode {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
 }
