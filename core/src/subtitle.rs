@@ -67,6 +67,17 @@ pub fn entries_from_srt(path: &Path) -> Result<Vec<SubtitleEntry>, CoreError> {
     Ok(subtitles)
 }
 
+pub fn srt_timestamp_to_ms(timestamp: &str) -> Option<u64> {
+    let ts = timestamp.trim();
+    let (time_part, millis_part) = ts.rsplit_once(',')?;
+    let millis: u64 = millis_part.parse().ok()?;
+    let mut parts = time_part.split(':');
+    let hours: u64 = parts.next()?.parse().ok()?;
+    let minutes: u64 = parts.next()?.parse().ok()?;
+    let seconds: u64 = parts.next()?.parse().ok()?;
+    Some(hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + millis)
+}
+
 fn parse_timestamp_line(line: &str) -> Option<(String, String)> {
     let mut parts = line.split(" --> ");
     let start = parts.next()?.trim().to_string();
@@ -116,6 +127,18 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].id, 1);
         assert_eq!(entries[1].id, 4);
+    }
+
+    #[test]
+    fn srt_timestamp_to_ms_returns_correct_milliseconds() {
+        assert_eq!(srt_timestamp_to_ms("00:00:01,000"), Some(1000));
+        assert_eq!(srt_timestamp_to_ms("00:00:04,000"), Some(4000));
+        assert_eq!(srt_timestamp_to_ms("00:00:09,500"), Some(9500));
+        assert_eq!(srt_timestamp_to_ms("00:00:12,300"), Some(12300));
+        assert_eq!(srt_timestamp_to_ms("00:01:00,000"), Some(60_000));
+        assert_eq!(srt_timestamp_to_ms("01:00:00,000"), Some(3_600_000));
+        assert_eq!(srt_timestamp_to_ms(""), None);
+        assert_eq!(srt_timestamp_to_ms("invalid"), None);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use kaeda_core::session::Card;
-use kaeda_core::subtitle::SubtitleEntry;
+use kaeda_core::subtitle::{SubtitleEntry, srt_timestamp_to_ms};
 use kaeda_core::tokenizer::Token;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +30,8 @@ pub struct SubtitleDto {
     pub id: u32,
     pub start_time: String,
     pub end_time: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
     pub text: String,
     pub is_known: bool,
     pub tokens: Vec<TokenDto>,
@@ -51,6 +53,8 @@ impl From<SubtitleEntry> for SubtitleDto {
     fn from(entry: SubtitleEntry) -> Self {
         Self {
             id: entry.id,
+            start_ms: srt_timestamp_to_ms(&entry.start_time).unwrap_or(0),
+            end_ms: srt_timestamp_to_ms(&entry.end_time).unwrap_or(0),
             start_time: entry.start_time,
             end_time: entry.end_time,
             text: entry.text,
@@ -90,6 +94,8 @@ mod tests {
         assert_eq!(dto.id, 42);
         assert_eq!(dto.start_time, "00:01:00,000");
         assert_eq!(dto.end_time, "00:01:05,000");
+        assert_eq!(dto.start_ms, 60_000);
+        assert_eq!(dto.end_ms, 65_000);
         assert_eq!(dto.text, "안녕하세요");
         assert!(!dto.is_known);
         assert!(dto.tokens.is_empty());

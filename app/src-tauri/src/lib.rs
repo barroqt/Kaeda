@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use kaeda_core::dictionary;
 use kaeda_core::session::{Card, Session};
 use kaeda_core::store::KnownLinesStore;
-use kaeda_core::subtitle::{SubtitleEntry, entries_from_srt};
+use kaeda_core::subtitle::{SubtitleEntry, entries_from_srt, srt_timestamp_to_ms};
 use kaeda_core::tokenizer::KoreanTokenizer;
 use tauri::Emitter;
 use tauri::Manager;
@@ -50,6 +50,7 @@ struct MiningSessionInner {
     known_store: Option<KnownLinesStore>,
     known_ids: HashSet<i64>,
     source_file_id: String,
+    video_path: String,
 }
 
 pub struct MiningSessionState {
@@ -73,6 +74,7 @@ impl MiningSessionState {
                 known_store: None,
                 known_ids: HashSet::new(),
                 source_file_id: String::new(),
+                video_path: String::new(),
             }),
         }
     }
@@ -83,6 +85,7 @@ impl MiningSessionState {
         deck_name: String,
         source_file_id: String,
         known_store: KnownLinesStore,
+        video_path: String,
     ) -> Result<(), String> {
         let subtitles = entries_from_srt(srt_path).map_err(|e| e.to_string())?;
         if subtitles.is_empty() {
@@ -110,6 +113,7 @@ impl MiningSessionState {
         inner.known_store = Some(known_store);
         inner.known_ids = known_ids;
         inner.source_file_id = source_file_id;
+        inner.video_path = video_path;
         Ok(())
     }
 
@@ -123,6 +127,8 @@ impl MiningSessionState {
                 id: entry.id,
                 start_time: entry.start_time.clone(),
                 end_time: entry.end_time.clone(),
+                start_ms: srt_timestamp_to_ms(&entry.start_time).unwrap_or(0),
+                end_ms: srt_timestamp_to_ms(&entry.end_time).unwrap_or(0),
                 text: entry.text.clone(),
                 is_known: inner.known_ids.contains(&(entry.id as i64)),
                 tokens: tokens.clone(),
@@ -260,6 +266,19 @@ impl MiningSessionState {
         let inner = self.inner.lock().map_err(|e| e.to_string())?;
         Ok(inner.known_ids.contains(&(subtitle_id as i64)))
     }
+
+    pub fn video_path(&self) -> Result<Option<String>, String> {
+        let inner = self.inner.lock().map_err(|e| e.to_string())?;
+        if inner.session.is_none() {
+            return Ok(None);
+        }
+        let path = inner.video_path.clone();
+        if path.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(path))
+        }
+    }
 }
 
 #[tauri::command]
@@ -282,7 +301,13 @@ fn start_session(
     std::fs::create_dir_all(&app_data_dir).map_err(|e| e.to_string())?;
     let store_path = app_data_dir.join("known_lines.db");
     let known_store = KnownLinesStore::open(&store_path).map_err(|e| e.to_string())?;
-    state.start_session(Path::new(&srt_path), deck_name, source_file_id, known_store)
+    state.start_session(
+        Path::new(&srt_path),
+        deck_name,
+        source_file_id,
+        known_store,
+        video_path,
+    )
 }
 
 #[tauri::command]
@@ -362,6 +387,11 @@ fn get_deck_name(state: tauri::State<'_, MiningSessionState>) -> Result<String, 
 }
 
 #[tauri::command]
+fn get_video_path(state: tauri::State<'_, MiningSessionState>) -> Result<Option<String>, String> {
+    state.video_path()
+}
+
+#[tauri::command]
 fn is_line_known(
     state: tauri::State<'_, MiningSessionState>,
     subtitle_id: u32,
@@ -434,6 +464,7 @@ pub fn run() {
             request_translation,
             mark_line_known,
             is_line_known,
+            get_video_path,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {
@@ -467,6 +498,7 @@ mod tests {
                 "test-deck".into(),
                 "video-1".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -474,6 +506,59 @@ mod tests {
         assert_eq!(subtitles.len(), 5);
         assert_eq!(subtitles[0].text, "안녕하세요 반갑습니다.");
         assert_eq!(subtitles[0].id, 1);
+    }
+
+    #[test]
+    fn start_session_stores_video_path() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        assert_eq!(state.video_path().unwrap(), None);
+
+        state
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+
+        assert_eq!(state.video_path().unwrap(), Some("/videos/test.mp4".into()));
+    }
+
+    #[test]
+    fn subtitle_timings_are_exposed_as_milliseconds() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+
+        let subtitles = state.subtitles().unwrap();
+        assert_eq!(subtitles[0].id, 1);
+        assert_eq!(subtitles[0].start_ms, 1000);
+        assert_eq!(subtitles[0].end_ms, 4000);
+        assert_eq!(subtitles[1].start_ms, 5000);
+        assert_eq!(subtitles[1].end_ms, 8000);
+        assert_eq!(subtitles[2].start_ms, 9500);
+        assert_eq!(subtitles[2].end_ms, 12300);
+        assert_eq!(subtitles[3].start_ms, 13000);
+        assert_eq!(subtitles[3].end_ms, 16500);
+        assert_eq!(subtitles[4].start_ms, 17000);
+        assert_eq!(subtitles[4].end_ms, 20000);
+    }
+
+    #[test]
+    fn video_path_is_none_before_session_starts() {
+        let state = MiningSessionState::new();
+        assert_eq!(state.video_path().unwrap(), None);
     }
 
     #[test]
@@ -488,6 +573,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -502,6 +588,7 @@ mod tests {
             "deck".into(),
             "file".into(),
             KnownLinesStore::in_memory().unwrap(),
+            "/videos/test.mp4".into(),
         );
         assert!(result.is_err());
     }
@@ -515,6 +602,7 @@ mod tests {
             "deck".into(),
             "file".into(),
             KnownLinesStore::in_memory().unwrap(),
+            "/videos/test.mp4".into(),
         );
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "no subtitles found in file");
@@ -537,6 +625,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -554,6 +643,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -573,6 +663,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -593,6 +684,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -617,6 +709,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -634,6 +727,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -658,6 +752,7 @@ mod tests {
                 "test-deck".into(),
                 "video-1".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -693,6 +788,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -728,6 +824,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -745,6 +842,7 @@ mod tests {
                 "test-deck".into(),
                 "video-1".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -778,6 +876,7 @@ mod tests {
                 "test-deck".into(),
                 "video-1".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -807,6 +906,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -836,6 +936,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -861,6 +962,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -887,6 +989,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -919,6 +1022,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -977,6 +1081,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -1020,6 +1125,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -1037,6 +1143,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -1067,6 +1174,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -1084,6 +1192,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -1110,6 +1219,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -1133,7 +1243,13 @@ mod tests {
         let srt_path = fixture_path("sample.srt");
         let store = KnownLinesStore::in_memory().unwrap();
         state
-            .start_session(&srt_path, "deck".into(), "file".into(), store)
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                store,
+                "/videos/test.mp4".into(),
+            )
             .unwrap();
 
         let subtitles = state.subtitles().unwrap();
@@ -1157,7 +1273,13 @@ mod tests {
             let store = KnownLinesStore::open(&db_path).unwrap();
             let state = MiningSessionState::new();
             state
-                .start_session(&srt_path, "deck".into(), "file".into(), store)
+                .start_session(
+                    &srt_path,
+                    "deck".into(),
+                    "file".into(),
+                    store,
+                    "/videos/test.mp4".into(),
+                )
                 .unwrap();
             state.mark_line_known(1).unwrap();
 
@@ -1170,7 +1292,13 @@ mod tests {
             let store = KnownLinesStore::open(&db_path).unwrap();
             let state = MiningSessionState::new();
             state
-                .start_session(&srt_path, "deck".into(), "file".into(), store)
+                .start_session(
+                    &srt_path,
+                    "deck".into(),
+                    "file".into(),
+                    store,
+                    "/videos/test.mp4".into(),
+                )
                 .unwrap();
 
             assert!(state.is_line_known(1).unwrap());
@@ -1193,6 +1321,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -1212,6 +1341,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 
@@ -1233,6 +1363,7 @@ mod tests {
                 "deck".into(),
                 "file".into(),
                 KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
             )
             .unwrap();
 

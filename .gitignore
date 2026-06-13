@@ -27,5 +27,6 @@ wordlist.txt
 # app front
 app/dist/
 app/node_modules
+app/videos
 *.srt
 *.tsv

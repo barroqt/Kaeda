@@ -52,7 +52,7 @@ cargo run -- known list        # list known words
 - [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/) for
   your platform (macOS: Xcode CLI tools; Linux: `libwebkit2gtk-4.1-dev` etc.)
 
-### Build & run
+### Run
 
 ```bash
 # install JS dependencies
