@@ -64,6 +64,7 @@ pub fn prepare_session_subtitles(
 
 pub fn entries_from_srt(path: &Path) -> Result<Vec<SubtitleEntry>, CoreError> {
     let content = std::fs::read_to_string(path)?;
+    let content = content.replace("\r\n", "\n").replace("\r", "\n");
     let mut subtitles: Vec<SubtitleEntry> = Vec::new();
 
     for block in content.split("\n\n") {
@@ -239,6 +240,24 @@ mod tests {
         };
         let entries = prepare_session_subtitles(source).unwrap();
         assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn parse_handles_crlf_line_endings() {
+        use std::io::Write;
+        let dir = std::env::temp_dir();
+        let path = dir.join("kaeda_test_crlf.srt");
+        let mut f = std::fs::File::create(&path).unwrap();
+        write!(f, "1\r\n00:00:01,000 --> 00:00:04,000\r\nHello\r\n\r\n2\r\n00:00:05,000 --> 00:00:08,000\r\nWorld\r\n").unwrap();
+        drop(f);
+
+        let entries = entries_from_srt(&path).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].id, 1);
+        assert_eq!(entries[0].text, "Hello");
+        assert_eq!(entries[1].text, "World");
+
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

@@ -13,6 +13,7 @@ use tauri::Emitter;
 use tauri::Manager;
 
 mod dto;
+mod video_server;
 use dto::{CardDto, SubtitleDto, TokenDto};
 
 #[derive(Clone, serde::Serialize)]
@@ -484,7 +485,7 @@ fn request_translation(
     let app_handle = app_handle.clone();
     let lemma_clone = lemma.clone();
 
-    std::thread::spawn(move || {
+    tauri::async_runtime::spawn_blocking(move || {
         let translation = match dictionary::suggest_explanation(&lemma_clone) {
             Ok(Some(translation)) => {
                 if let Some(manager) = app_handle.try_state::<TranslationManager>() {
@@ -511,11 +512,37 @@ fn request_translation(
     Ok(None)
 }
 
+struct VideoServerState {
+    port: u16,
+}
+
+fn default_video_server() -> VideoServerState {
+    match video_server::VideoServer::start() {
+        Ok(srv) => {
+            let port = srv.port();
+            // Leak the server so it lives for the full app lifetime.
+            // Drop is handled via process exit.
+            std::mem::forget(srv);
+            VideoServerState { port }
+        }
+        Err(e) => {
+            eprintln!("video server failed to start: {e}");
+            VideoServerState { port: 0 }
+        }
+    }
+}
+
+#[tauri::command]
+fn get_video_server_port(state: tauri::State<'_, VideoServerState>) -> u16 {
+    state.port
+}
+
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(MiningSessionState::new())
         .manage(TranslationManager::new())
+        .manage(default_video_server())
         .invoke_handler(tauri::generate_handler![
             start_session,
             start_embedded_session,
@@ -534,12 +561,19 @@ pub fn run() {
             mark_line_known,
             is_line_known,
             get_video_path,
+            get_video_server_port,
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .unwrap_or_else(|err| {
             eprintln!("error: {err}");
             std::process::exit(1);
         });
+
+    app.run(|_app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            // allow exit
+        }
+    });
 }
 
 #[cfg(test)]
