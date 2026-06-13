@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+use crate::embedded_subtitles;
 use crate::util::strip_html_tags;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -40,12 +41,31 @@ pub enum SubtitleSource {
 
 #[derive(Debug, Error)]
 pub enum ExtractError {
-    #[error("unsupported subtitle source: embedded subtitles not yet implemented")]
-    UnsupportedForNow,
+    #[error("failed to open video file: {0}")]
+    Open(String),
+    #[error("no text subtitle track found in video")]
+    NoSubtitleTrack,
+    #[error("subtitle extraction failed: {0}")]
+    Extraction(String),
     #[error("failed to read subtitle file: {0}")]
     Io(#[from] std::io::Error),
     #[error("subtitle parsing error: {0}")]
     Parse(String),
+}
+
+impl From<embedded_subtitles::SubtitleExtractError> for ExtractError {
+    fn from(e: embedded_subtitles::SubtitleExtractError) -> Self {
+        match e {
+            embedded_subtitles::SubtitleExtractError::Open(msg) => ExtractError::Open(msg),
+            embedded_subtitles::SubtitleExtractError::NoSubtitleTrack => {
+                ExtractError::NoSubtitleTrack
+            }
+            embedded_subtitles::SubtitleExtractError::Extraction(msg) => {
+                ExtractError::Extraction(msg)
+            }
+            embedded_subtitles::SubtitleExtractError::Write(io) => ExtractError::Io(io),
+        }
+    }
 }
 
 pub fn prepare_session_subtitles(
@@ -58,7 +78,15 @@ pub fn prepare_session_subtitles(
                 other => ExtractError::Parse(other.to_string()),
             })
         }
-        SubtitleSource::Embedded { .. } => Err(ExtractError::UnsupportedForNow),
+        SubtitleSource::Embedded { video_path } => {
+            let srt_path = embedded_subtitles::extract_to_srt(&video_path)?;
+            let entries = entries_from_srt(&srt_path).map_err(|e| match e {
+                CoreError::Io(io) => ExtractError::Io(io),
+                other => ExtractError::Parse(other.to_string()),
+            });
+            let _ = std::fs::remove_file(&srt_path);
+            entries
+        }
     }
 }
 
@@ -261,16 +289,16 @@ mod tests {
     }
 
     #[test]
-    fn prepare_session_subtitles_embedded_returns_unsupported() {
+    fn prepare_session_subtitles_embedded_missing_file_returns_open_error() {
         let source = SubtitleSource::Embedded {
-            video_path: PathBuf::from("/videos/test.mp4"),
+            video_path: PathBuf::from("/nonexistent/video.mkv"),
         };
         let result = prepare_session_subtitles(source);
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            ExtractError::UnsupportedForNow
-        ));
+        assert!(
+            matches!(result.unwrap_err(), ExtractError::Open(_)),
+            "expected Open error for missing video file"
+        );
     }
 
     #[test]

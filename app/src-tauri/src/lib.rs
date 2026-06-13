@@ -1457,7 +1457,7 @@ mod tests {
     }
 
     #[test]
-    fn start_embedded_session_returns_error_not_implemented_yet() {
+    fn start_embedded_session_missing_file_returns_open_error() {
         let state = MiningSessionState::new();
         let result = state.start_embedded_session(
             "deck".into(),
@@ -1466,7 +1466,7 @@ mod tests {
             "/videos/test.mp4".into(),
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("unsupported subtitle source"));
+        assert!(result.unwrap_err().contains("failed to open video file"));
     }
 
     #[test]
