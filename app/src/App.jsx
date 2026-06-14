@@ -37,6 +37,7 @@ export default function App() {
   const saveRef = useRef(null);
   const markKnownRef = useRef(null);
   const videoRef = useRef(null);
+  const timeUpdateRef = useRef({ subtitles: [], currentIndex: 0, selectIndex: async () => {} });
   const toastIdRef = useRef(0);
 
   function showToast(message, type = "info") {
@@ -219,6 +220,28 @@ export default function App() {
     await selectIndex(idx);
   }
 
+  const handleTimeUpdate = useCallback((timeSeconds) => {
+    const { subtitles, currentIndex, selectIndex } = timeUpdateRef.current;
+    if (!subtitles.length) return;
+    const timeMs = timeSeconds * 1000;
+    // Scan forward from currentIndex (most likely still playing), then wrap to 0
+    for (let i = currentIndex; i < subtitles.length; i++) {
+      const s = subtitles[i];
+      if (s.start_ms <= timeMs && timeMs < s.end_ms) {
+        if (i !== currentIndex) selectIndex(i);
+        return;
+      }
+      if (s.start_ms > timeMs) break;
+    }
+    for (let i = 0; i < currentIndex; i++) {
+      const s = subtitles[i];
+      if (s.start_ms <= timeMs && timeMs < s.end_ms) {
+        selectIndex(i);
+        return;
+      }
+    }
+  }, []);
+
   async function navigate(delta) {
     try {
       const idx = await invoke(
@@ -344,6 +367,7 @@ export default function App() {
   tokenNavRef.current = { selectedTokenIndex, subtitles, currentIndex, setSelectedTokenIndex };
   saveRef.current = handleSaveCard;
   markKnownRef.current = handleMarkKnown;
+  timeUpdateRef.current = { subtitles, currentIndex, selectIndex };
 
   useEffect(() => {
     function isInputFocused() {
@@ -432,7 +456,7 @@ export default function App() {
       </aside>
       <main id="main-panel" className={current ? "has-session" : ""}>
         {current ? (
-          <VideoPane ref={videoRef} videoPath={videoPath} />
+          <VideoPane ref={videoRef} videoPath={videoPath} onTimeUpdate={handleTimeUpdate} />
         ) : (
           <>
             <div id="current-subtitle">

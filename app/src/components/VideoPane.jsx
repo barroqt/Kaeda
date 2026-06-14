@@ -1,11 +1,15 @@
-import { forwardRef, useState, useCallback, useEffect } from "react";
+import { forwardRef, useState, useCallback, useEffect, useRef } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 const LOCALHOST = "127.0.0.1";
 
-const VideoPane = forwardRef(({ videoPath }, ref) => {
+const VideoPane = forwardRef(({ videoPath, onTimeUpdate }, ref) => {
   const [error, setError] = useState(null);
   const [url, setUrl] = useState("");
+
+  // Keep the latest callback in a ref so the native listener always calls the current version.
+  const cbRef = useRef(onTimeUpdate);
+  cbRef.current = onTimeUpdate;
 
   useEffect(() => {
     setError(null);
@@ -32,6 +36,17 @@ const VideoPane = forwardRef(({ videoPath }, ref) => {
       }
     })();
   }, [videoPath]);
+
+  // Attach native timeupdate listener when the <video> element mounts (url is set).
+  // The forwarded ref object is stable, so we key off url instead — when it
+  // transitions "" → "<real url>" the element exists and ref.current is populated.
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) return;
+    const handler = () => cbRef.current?.(video.currentTime);
+    video.addEventListener("timeupdate", handler);
+    return () => video.removeEventListener("timeupdate", handler);
+  }, [url]);
 
   const handleVideoError = useCallback((e) => {
     const video = e.currentTarget;
