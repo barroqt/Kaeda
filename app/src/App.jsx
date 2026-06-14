@@ -339,20 +339,20 @@ export default function App() {
 
     function handleKey(e) {
       if (isInputFocused()) return;
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        navigateRef.current(1);
-      } else if (e.key === "ArrowUp") {
+      if (e.key === "w" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         navigateRef.current(-1);
-      } else if (e.key === "ArrowLeft") {
+      } else if (e.key === "s" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        navigateRef.current(1);
+      } else if (e.key === "a" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         const ref = tokenNavRef.current;
         const tokens = ref.subtitles[ref.currentIndex]?.tokens;
         if (tokens && tokens.length > 0 && ref.selectedTokenIndex > 0) {
           ref.setSelectedTokenIndex(ref.selectedTokenIndex - 1);
         }
-      } else if (e.key === "ArrowRight") {
+      } else if (e.key === "d" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         const ref = tokenNavRef.current;
         const tokens = ref.subtitles[ref.currentIndex]?.tokens;
@@ -367,9 +367,6 @@ export default function App() {
       } else if (e.key === "k" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         markKnownRef.current();
-      } else if (e.key === "s" && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        navigateRef.current(1);
       }
     }
     document.addEventListener("keydown", handleKey);
@@ -410,6 +407,14 @@ export default function App() {
             </div>
           ))}
         </div>
+        {current && (
+          <div id="sidebar-shortcuts">
+            <span className="key">W</span><span className="key">S</span> subs
+            <span className="key">A</span><span className="key">D</span> word
+            <span className="key">K</span> known
+            <span className="key">&#8984;</span>+<span className="key">Enter</span> save
+          </div>
+        )}
       </aside>
       <main id="main-panel" className={current ? "has-session" : ""}>
         {current ? (
@@ -420,11 +425,10 @@ export default function App() {
               <div id="current-text">Start a session to begin mining</div>
             </div>
             <div id="help-text">
-              <p>&uarr; &darr; Navigate subtitles</p>
-              <p>&larr; &rarr; Select token</p>
-              <p>&#8984;+Enter Save card</p>
-              <p>k Mark line as known</p>
-              <p>s Skip line</p>
+              <p><span className="key">W</span> <span className="key">S</span> Navigate subtitles</p>
+              <p><span className="key">A</span> <span className="key">D</span> Select token</p>
+              <p><span className="key">&#8984;</span>+<span className="key">Enter</span> Save card</p>
+              <p><span className="key">K</span> Mark line as known</p>
               <p>Click a subtitle to select it</p>
             </div>
           </>
@@ -513,7 +517,6 @@ export default function App() {
                   >
                     Skip
                   </button>
-                  <span className="action-hint">s</span>
                 </div>
                 <div className="action-group">
                   <button
