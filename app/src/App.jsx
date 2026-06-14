@@ -262,10 +262,15 @@ export default function App() {
   }
 
   async function handleSaveCard() {
-    if (selectedTokenIndex < 0) return;
+    if (!explanation.trim()) return;
     const current = subtitles[currentIndex];
-    if (!current || !current.tokens || selectedTokenIndex >= current.tokens.length) return;
-    const target = current.tokens[selectedTokenIndex].lemma;
+    if (!current) return;
+    const target =
+      selectedTokenIndex >= 0 &&
+      current.tokens &&
+      selectedTokenIndex < current.tokens.length
+        ? current.tokens[selectedTokenIndex].lemma
+        : "";
     try {
       const card = await invoke("save_card", {
         target,
@@ -608,7 +613,7 @@ export default function App() {
                   <button
                     className="save-btn"
                     onClick={handleSaveCard}
-                    disabled={selectedTokenIndex < 0}
+                    disabled={!explanation.trim()}
                   >
                     Save Card
                   </button>
