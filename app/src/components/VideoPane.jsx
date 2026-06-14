@@ -8,6 +8,7 @@ export default function VideoPane({ videoPath }) {
   const [url, setUrl] = useState("");
 
   useEffect(() => {
+    setError(null);
     if (!videoPath) {
       setUrl("");
       return;

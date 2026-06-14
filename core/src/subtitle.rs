@@ -106,19 +106,13 @@ pub(crate) fn prepare_session_subtitles_impl(
                             &std::env::temp_dir(),
                         ) {
                             Ok(srt_path) => parse_and_cleanup(&srt_path),
-                            Err(ff_err) => {
-                                Err(ExtractError::FfmpegFailed { source: ff_err })
-                            }
+                            Err(ff_err) => Err(ExtractError::FfmpegFailed { source: ff_err }),
                         }
                     } else {
-                        Err(ExtractError::EmbeddedExtractionFailed {
-                            source: err,
-                        })
+                        Err(ExtractError::EmbeddedExtractionFailed { source: err })
                     }
                 }
-                Err(err) => Err(ExtractError::EmbeddedExtractionFailed {
-                    source: err,
-                }),
+                Err(err) => Err(ExtractError::EmbeddedExtractionFailed { source: err }),
             }
         }
     }

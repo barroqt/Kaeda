@@ -30,6 +30,7 @@ export default function App() {
   const [videoPath, setVideoPath] = useState(null);
   const [sessionMode, setSessionMode] = useState(null);
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
+  const [sessionError, setSessionError] = useState(null);
   const [toasts, setToasts] = useState([]);
   const navigateRef = useRef(null);
   const tokenNavRef = useRef(null);
@@ -155,7 +156,12 @@ export default function App() {
       const name = await invoke("get_deck_name");
       setDeckName(name);
     } catch (err) {
-      showToast(`Error: ${err}`, "error");
+      setVideoPath(null);
+      const msg =
+        typeof err === "object" && err !== null
+          ? err.message || String(err)
+          : String(err);
+      setSessionError(msg);
     }
   }
 
@@ -182,7 +188,11 @@ export default function App() {
       const name = await invoke("get_deck_name");
       setDeckName(name);
     } catch (err) {
-      showToast(`Error: ${err}`, "error");
+      const msg =
+        typeof err === "object" && err !== null
+          ? err.message || String(err)
+          : String(err);
+      setSessionError(msg);
     }
   }
 
@@ -593,6 +603,18 @@ export default function App() {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {sessionError && (
+        <div className="dialog-overlay" onClick={() => setSessionError(null)}>
+          <div className="dialog session-error-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Session Error</h3>
+            <p className="dialog-message">{sessionError}</p>
+            <button className="dialog-btn dialog-btn-cancel" onClick={() => setSessionError(null)}>
+              Dismiss
+            </button>
           </div>
         </div>
       )}

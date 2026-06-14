@@ -3,10 +3,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use kaeda_core::dictionary;
+use kaeda_core::embedded_subtitles;
+use kaeda_core::ffmpeg_subtitles;
 use kaeda_core::session::{Card, Session};
 use kaeda_core::store::KnownLinesStore;
 use kaeda_core::subtitle::{
-    SubtitleEntry, SubtitleSource, prepare_session_subtitles, srt_timestamp_to_ms,
+    ExtractError, SubtitleEntry, SubtitleSource, prepare_session_subtitles, srt_timestamp_to_ms,
 };
 use kaeda_core::tokenizer::KoreanTokenizer;
 use tauri::Emitter;
@@ -42,6 +44,53 @@ impl TranslationManager {
         if let Ok(mut cache) = self.cache.lock() {
             cache.insert(lemma, translation);
         }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct SessionStartError {
+    pub code: String,
+    pub message: String,
+}
+
+fn map_extract_error(err: ExtractError) -> SessionStartError {
+    match &err {
+        ExtractError::EmbeddedExtractionFailed { source } => match source {
+            embedded_subtitles::SubtitleExtractError::NoSubtitleTracksFound => SessionStartError {
+                code: "NO_SUBTITLE_TRACKS".into(),
+                message: "No subtitles were found in this video. Please provide an external SRT."
+                    .into(),
+            },
+            embedded_subtitles::SubtitleExtractError::ImageBasedSubtitles => SessionStartError {
+                code: "IMAGE_BASED_SUBTITLES".into(),
+                message: "This video uses image-based subtitles, which Kaeda cannot read yet. \
+                          Please provide an external SRT."
+                    .into(),
+            },
+            _ => SessionStartError {
+                code: "EMBEDDED_EXTRACTION_FAILED".into(),
+                message: err.to_string(),
+            },
+        },
+        ExtractError::FfmpegFailed { source } => match source {
+            ffmpeg_subtitles::FfmpegExtractError::FfmpegNotFound => SessionStartError {
+                code: "FFMPEG_NOT_FOUND".into(),
+                message: "Kaeda's built-in extractor could not read the subtitles, \
+                          and ffmpeg is not installed. \
+                          Install ffmpeg or provide an external SRT."
+                    .into(),
+            },
+            _ => SessionStartError {
+                code: "FFMPEG_FAILED".into(),
+                message: "Kaeda tried ffmpeg but failed to extract subtitles from this file. \
+                          Please provide an external SRT."
+                    .into(),
+            },
+        },
+        _ => SessionStartError {
+            code: "EXTRACTION_FAILED".into(),
+            message: err.to_string(),
+        },
     }
 }
 
@@ -82,19 +131,16 @@ impl MiningSessionState {
         }
     }
 
-    pub fn start_session(
+    /// Shared setup: tokenize, load known lines, create session, write state.
+    /// Called by all session-start paths after subtitles are obtained.
+    fn init_with_subtitles(
         &self,
-        srt_path: &Path,
+        subtitles: Vec<SubtitleEntry>,
         deck_name: String,
         source_file_id: String,
         known_store: KnownLinesStore,
         video_path: String,
     ) -> Result<(), String> {
-        let source = SubtitleSource::ExternalSrt {
-            srt_path: srt_path.to_path_buf(),
-            video_path: Some(PathBuf::from(&video_path)),
-        };
-        let subtitles = prepare_session_subtitles(source).map_err(|e| e.to_string())?;
         if subtitles.is_empty() {
             return Err("no subtitles found in file".to_string());
         }
@@ -124,6 +170,28 @@ impl MiningSessionState {
         Ok(())
     }
 
+    pub fn start_session(
+        &self,
+        srt_path: &Path,
+        deck_name: String,
+        source_file_id: String,
+        known_store: KnownLinesStore,
+        video_path: String,
+    ) -> Result<(), String> {
+        let source = SubtitleSource::ExternalSrt {
+            srt_path: srt_path.to_path_buf(),
+            video_path: Some(PathBuf::from(&video_path)),
+        };
+        let subtitles = prepare_session_subtitles(source).map_err(|e| e.to_string())?;
+        self.init_with_subtitles(
+            subtitles,
+            deck_name,
+            source_file_id,
+            known_store,
+            video_path,
+        )
+    }
+
     pub fn start_embedded_session(
         &self,
         deck_name: String,
@@ -135,33 +203,13 @@ impl MiningSessionState {
             video_path: PathBuf::from(&video_path),
         };
         let subtitles = prepare_session_subtitles(source).map_err(|e| e.to_string())?;
-        if subtitles.is_empty() {
-            return Err("no subtitles found in file".to_string());
-        }
-        let tokenizer = KoreanTokenizer::new().map_err(|e| e.to_string())?;
-        let subtitle_tokens: Vec<Vec<TokenDto>> = subtitles
-            .iter()
-            .map(|sub| {
-                tokenizer
-                    .tokenize(&sub.text)
-                    .map(|tokens| tokens.iter().map(TokenDto::from).collect())
-                    .map_err(|e| e.to_string())
-            })
-            .collect::<Result<Vec<_>, String>>()?;
-        let known_ids = known_store
-            .known_ids(&source_file_id)
-            .map_err(|e| e.to_string())?;
-        let session = Session::new(deck_name, source_file_id.clone());
-        let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
-        inner.session = Some(session);
-        inner.subtitles = subtitles;
-        inner.subtitle_tokens = subtitle_tokens;
-        inner.current_index = 0;
-        inner.known_store = Some(known_store);
-        inner.known_ids = known_ids;
-        inner.source_file_id = source_file_id;
-        inner.video_path = video_path;
-        Ok(())
+        self.init_with_subtitles(
+            subtitles,
+            deck_name,
+            source_file_id,
+            known_store,
+            video_path,
+        )
     }
 
     pub fn subtitles(&self) -> Result<Vec<SubtitleDto>, String> {
@@ -363,7 +411,7 @@ fn start_embedded_session(
     app_handle: tauri::AppHandle,
     video_path: String,
     deck_name: String,
-) -> Result<(), String> {
+) -> Result<(), SessionStartError> {
     let source_file_id = Path::new(&video_path)
         .file_stem()
         .and_then(|s| s.to_str())
@@ -372,11 +420,36 @@ fn start_embedded_session(
     let app_data_dir = app_handle
         .path()
         .app_data_dir()
-        .map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&app_data_dir).map_err(|e| e.to_string())?;
+        .map_err(|e| SessionStartError {
+            code: "SETUP_FAILED".into(),
+            message: e.to_string(),
+        })?;
+    std::fs::create_dir_all(&app_data_dir).map_err(|e| SessionStartError {
+        code: "SETUP_FAILED".into(),
+        message: e.to_string(),
+    })?;
     let store_path = app_data_dir.join("known_lines.db");
-    let known_store = KnownLinesStore::open(&store_path).map_err(|e| e.to_string())?;
-    state.start_embedded_session(deck_name, source_file_id, known_store, video_path)
+    let known_store = KnownLinesStore::open(&store_path).map_err(|e| SessionStartError {
+        code: "SETUP_FAILED".into(),
+        message: e.to_string(),
+    })?;
+
+    let source = SubtitleSource::Embedded {
+        video_path: PathBuf::from(&video_path),
+    };
+    let subtitles = prepare_session_subtitles(source).map_err(map_extract_error)?;
+    state
+        .init_with_subtitles(
+            subtitles,
+            deck_name,
+            source_file_id,
+            known_store,
+            video_path,
+        )
+        .map_err(|e| SessionStartError {
+            code: "INIT_FAILED".into(),
+            message: e,
+        })
 }
 
 #[tauri::command]
@@ -1457,7 +1530,7 @@ mod tests {
     }
 
     #[test]
-    fn start_embedded_session_missing_file_returns_open_error() {
+    fn start_embedded_session_missing_file_returns_error() {
         let state = MiningSessionState::new();
         let result = state.start_embedded_session(
             "deck".into(),
@@ -1466,7 +1539,11 @@ mod tests {
             "/videos/test.mp4".into(),
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("failed to open video file"));
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("extraction") || err.contains("ffmpeg") || err.contains("video file"),
+            "unexpected error message: {err}"
+        );
     }
 
     #[test]
