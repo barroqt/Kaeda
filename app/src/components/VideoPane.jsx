@@ -19,7 +19,7 @@ const VideoPane = forwardRef(({ videoPath, onTimeUpdate }, ref) => {
     }
     if (!isTauri()) {
       setUrl("");
-      setError("Not running in Tauri — video unavailable");
+      setError("Video unavailable — not running in Tauri");
       return;
     }
     (async () => {
@@ -49,26 +49,28 @@ const VideoPane = forwardRef(({ videoPath, onTimeUpdate }, ref) => {
   }, [url]);
 
   const handleVideoError = useCallback((e) => {
-    const video = e.currentTarget;
-    const ve = video.error;
+    const ve = e.currentTarget.error;
     const labels = ["", "ABORTED", "NETWORK", "DECODE", "SRC_NOT_SUPPORTED"];
-    if (ve) {
-      setError(`Video error ${ve.code} (${labels[ve.code] || "unknown"}): ${ve.message}`);
-    } else {
-      setError(`Video error (no MediaError object)`);
-    }
+    const code = ve ? `${ve.code} (${labels[ve.code] || "unknown"})` : "unknown";
+    setError(`Video playback error (${code})`);
   }, []);
 
   const handleSourceError = useCallback((e) => {
-    const src = e.currentTarget;
-    setError(`Source error loading: ${src.src ? src.src.substring(0, 80) : "none"}`);
+    const src = e.currentTarget.src;
+    setError(`Source load error: ${src ? src.substring(0, 80) : "none"}`);
   }, []);
 
   return (
     <div id="video-pane">
-      <div id="video-container">
-        {error && <div id="video-error">{error}</div>}
-        {videoPath && url ? (
+      <div id="video-container" className={error ? "video-failed" : ""}>
+        {error ? (
+          <div id="video-fallback">
+            <div id="video-fallback-banner">
+              Video could not be played. You can still mine from subtitles.
+            </div>
+            <div id="video-fallback-detail">{error}</div>
+          </div>
+        ) : videoPath && url ? (
           <video ref={ref} id="kaeda-video" controls onError={handleVideoError}>
             <source key={url} src={url} onError={handleSourceError} />
           </video>

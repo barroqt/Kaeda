@@ -72,6 +72,11 @@ cd app && cargo tauri dev
 6. Click **View Cards** to review, edit, or delete cards from the session
 7. Click **Export TSV** to produce an Anki-importable file
 
+If the video fails to load or play (unsupported codec, missing video server, etc.),
+Kaeda shows a prominent fallback banner and dims the video area. The subtitle list
+and card panel remain fully functional and you can still mine from subtitles, save
+cards, and export.
+
 ### Keyboard shortcuts
 
 | Key(s)                | Action                        |
