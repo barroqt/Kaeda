@@ -36,8 +36,10 @@ export default function App() {
   const tokenNavRef = useRef(null);
   const saveRef = useRef(null);
   const markKnownRef = useRef(null);
+  const replayRef = useRef(null);
   const videoRef = useRef(null);
   const timeUpdateRef = useRef({ subtitles: [], currentIndex: 0, selectIndex: async () => {} });
+  const replayTimeoutRef = useRef(null);
   const toastIdRef = useRef(0);
 
   function showToast(message, type = "info") {
@@ -84,6 +86,12 @@ export default function App() {
   }, [currentIndex]);
 
   const fetchingLemmaRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (replayTimeoutRef.current) clearTimeout(replayTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const unlisten = listen("translation-result", (event) => {
@@ -290,7 +298,19 @@ export default function App() {
   }
 
   function handleReplay() {
-    showToast("Audio replay coming soon", "info");
+    const sub = subtitles[currentIndex];
+    if (!sub) return;
+    const video = videoRef.current;
+    if (!video) return;
+    const startMs = Math.max(0, sub.start_ms - 200);
+    const durationMs = (sub.end_ms - sub.start_ms) + 400;
+    if (replayTimeoutRef.current) clearTimeout(replayTimeoutRef.current);
+    video.currentTime = startMs / 1000.0;
+    video.play();
+    replayTimeoutRef.current = setTimeout(() => {
+      video.pause();
+      replayTimeoutRef.current = null;
+    }, durationMs);
   }
 
   async function loadSessionCards() {
@@ -367,6 +387,7 @@ export default function App() {
   tokenNavRef.current = { selectedTokenIndex, subtitles, currentIndex, setSelectedTokenIndex };
   saveRef.current = handleSaveCard;
   markKnownRef.current = handleMarkKnown;
+  replayRef.current = handleReplay;
   timeUpdateRef.current = { subtitles, currentIndex, selectIndex };
 
   useEffect(() => {
@@ -405,6 +426,9 @@ export default function App() {
       } else if (e.key === "k" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         markKnownRef.current();
+      } else if (e.key === "r" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        replayRef.current();
       }
     }
     document.addEventListener("keydown", handleKey);
@@ -449,6 +473,7 @@ export default function App() {
           <div id="sidebar-shortcuts">
             <span className="key">W</span><span className="key">S</span> subs
             <span className="key">A</span><span className="key">D</span> word
+            <span className="key">R</span> replay
             <span className="key">K</span> known
             <span className="key">&#8984;</span>+<span className="key">Enter</span> save
           </div>
@@ -465,6 +490,7 @@ export default function App() {
             <div id="help-text">
               <p><span className="key">W</span> <span className="key">S</span> Navigate subtitles</p>
               <p><span className="key">A</span> <span className="key">D</span> Select token</p>
+              <p><span className="key">R</span> Replay current line</p>
               <p><span className="key">&#8984;</span>+<span className="key">Enter</span> Save card</p>
               <p><span className="key">K</span> Mark line as known</p>
               <p>Click a subtitle to select it</p>
@@ -560,7 +586,7 @@ export default function App() {
                   <button
                     className="replay-btn"
                     onClick={handleReplay}
-                    title="Replay audio (coming soon)"
+                    title="Replay current line [r]"
                   >
                     Replay
                   </button>
