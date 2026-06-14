@@ -434,6 +434,42 @@ export default function App() {
       } else if (e.key === "r" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         replayRef.current();
+      } else if (e.key === " " && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        const video = videoRef.current;
+        if (video) {
+          video.paused ? video.play() : video.pause();
+        }
+      } else if (e.key === "ArrowLeft" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        const video = videoRef.current;
+        if (video) {
+          video.currentTime = Math.max(0, video.currentTime - 15);
+        }
+      } else if (e.key === "ArrowRight" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        const video = videoRef.current;
+        if (video) {
+          video.currentTime = Math.min(video.duration || 0, video.currentTime + 15);
+        }
+      } else if (e.key === "ArrowUp" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        const video = videoRef.current;
+        if (video) {
+          video.volume = Math.min(1, (video.volume || 0) + 0.1);
+        }
+      } else if (e.key === "ArrowDown" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        const video = videoRef.current;
+        if (video) {
+          video.volume = Math.max(0, (video.volume || 0) - 0.1);
+        }
+      } else if (e.key === "m" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        const video = videoRef.current;
+        if (video) {
+          video.muted = !video.muted;
+        }
       }
     }
     document.addEventListener("keydown", handleKey);
