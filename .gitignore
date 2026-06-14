@@ -31,6 +31,3 @@ app/node_modules
 app/videos
 *.srt
 *.tsv
-
-# Cline
-.clinerules
