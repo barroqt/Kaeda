@@ -36,6 +36,7 @@ export default function App() {
   const tokenNavRef = useRef(null);
   const saveRef = useRef(null);
   const markKnownRef = useRef(null);
+  const videoRef = useRef(null);
   const toastIdRef = useRef(0);
 
   function showToast(message, type = "info") {
@@ -203,6 +204,19 @@ export default function App() {
     } catch {
       /* out of range */
     }
+  }
+
+  async function handleSubtitleClick(subtitleId) {
+    const idx = subtitles.findIndex((s) => s.id === subtitleId);
+    if (idx < 0) return;
+    const sub = subtitles[idx];
+    // v1 behavior: seek + pause — the user clicks to inspect a line, then manually plays.
+    const video = videoRef.current;
+    if (video) {
+      video.currentTime = sub.start_ms / 1000.0;
+      video.pause();
+    }
+    await selectIndex(idx);
   }
 
   async function navigate(delta) {
@@ -398,7 +412,7 @@ export default function App() {
               className={
                 "subtitle-item" + (i === currentIndex ? " active" : "") + (sub.is_known ? " known" : "")
               }
-              onClick={() => selectIndex(i)}
+              onClick={() => handleSubtitleClick(sub.id)}
             >
               <div className="timestamp">
                 {sub.start_time} &rarr; {sub.end_time}
@@ -418,7 +432,7 @@ export default function App() {
       </aside>
       <main id="main-panel" className={current ? "has-session" : ""}>
         {current ? (
-          <VideoPane videoPath={videoPath} />
+          <VideoPane ref={videoRef} videoPath={videoPath} />
         ) : (
           <>
             <div id="current-subtitle">

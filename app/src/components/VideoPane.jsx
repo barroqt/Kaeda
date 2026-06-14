@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect } from "react";
+import { forwardRef, useState, useCallback, useEffect } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 const LOCALHOST = "127.0.0.1";
 
-export default function VideoPane({ videoPath }) {
+const VideoPane = forwardRef(({ videoPath }, ref) => {
   const [error, setError] = useState(null);
   const [url, setUrl] = useState("");
 
@@ -54,7 +54,7 @@ export default function VideoPane({ videoPath }) {
       <div id="video-container">
         {error && <div id="video-error">{error}</div>}
         {videoPath && url ? (
-          <video id="kaeda-video" controls onError={handleVideoError}>
+          <video ref={ref} id="kaeda-video" controls onError={handleVideoError}>
             <source key={url} src={url} onError={handleSourceError} />
           </video>
         ) : videoPath ? (
@@ -65,4 +65,6 @@ export default function VideoPane({ videoPath }) {
       </div>
     </div>
   );
-}
+});
+
+export default VideoPane;
