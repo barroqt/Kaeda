@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::embedded_subtitles;
+use crate::ffmpeg;
+use crate::ffmpeg_subtitles;
 use crate::util::strip_html_tags;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -51,31 +53,37 @@ pub enum ExtractError {
     Io(#[from] std::io::Error),
     #[error("subtitle parsing error: {0}")]
     Parse(String),
-}
-
-impl From<embedded_subtitles::SubtitleExtractError> for ExtractError {
-    fn from(e: embedded_subtitles::SubtitleExtractError) -> Self {
-        match e {
-            embedded_subtitles::SubtitleExtractError::NoSubtitleTracksFound => {
-                ExtractError::NoSubtitleTrack
-            }
-            embedded_subtitles::SubtitleExtractError::UnsupportedTextFormat(msg) => {
-                ExtractError::Extraction(msg)
-            }
-            embedded_subtitles::SubtitleExtractError::ImageBasedSubtitles => {
-                ExtractError::Extraction("image-based subtitles are not supported".into())
-            }
-            embedded_subtitles::SubtitleExtractError::IoError(io) => ExtractError::Io(io),
-            embedded_subtitles::SubtitleExtractError::InternalError(msg) => {
-                ExtractError::Extraction(msg)
-            }
-        }
-    }
+    #[error("ffmpeg extraction failed: {source}")]
+    FfmpegFailed {
+        source: ffmpeg_subtitles::FfmpegExtractError,
+    },
+    #[error("embedded subtitle extraction failed: {source}")]
+    EmbeddedExtractionFailed {
+        source: embedded_subtitles::SubtitleExtractError,
+    },
 }
 
 pub fn prepare_session_subtitles(
     source: SubtitleSource,
 ) -> Result<Vec<SubtitleEntry>, ExtractError> {
+    prepare_session_subtitles_impl(source, Some("ffmpeg"))
+}
+
+/// Implementation helper that accepts the ffmpeg binary name so tests can
+/// control whether the ffmpeg fallback is attempted.
+pub(crate) fn prepare_session_subtitles_impl(
+    source: SubtitleSource,
+    ffmpeg_binary: Option<&str>,
+) -> Result<Vec<SubtitleEntry>, ExtractError> {
+    let parse_and_cleanup = |srt_path: &Path| -> Result<Vec<SubtitleEntry>, ExtractError> {
+        let entries = entries_from_srt(srt_path).map_err(|e| match e {
+            CoreError::Io(io) => ExtractError::Io(io),
+            other => ExtractError::Parse(other.to_string()),
+        })?;
+        let _ = std::fs::remove_file(srt_path);
+        Ok(entries)
+    };
+
     match source {
         SubtitleSource::ExternalSrt { srt_path, .. } => {
             entries_from_srt(&srt_path).map_err(|e| match e {
@@ -84,13 +92,34 @@ pub fn prepare_session_subtitles(
             })
         }
         SubtitleSource::Embedded { video_path } => {
-            let srt_path = embedded_subtitles::extract_to_srt(&video_path)?;
-            let entries = entries_from_srt(&srt_path).map_err(|e| match e {
-                CoreError::Io(io) => ExtractError::Io(io),
-                other => ExtractError::Parse(other.to_string()),
-            });
-            let _ = std::fs::remove_file(&srt_path);
-            entries
+            match embedded_subtitles::extract_to_srt(&video_path) {
+                Ok(srt_path) => parse_and_cleanup(&srt_path),
+                Err(err) if err.is_retryable_with_ffmpeg() => {
+                    let ffmpeg_ok = ffmpeg_binary
+                        .map(ffmpeg::command_available)
+                        .unwrap_or(false);
+                    if ffmpeg_ok {
+                        match ffmpeg_subtitles::extract_with_ffmpeg_impl(
+                            ffmpeg_binary.unwrap(),
+                            &video_path,
+                            None,
+                            &std::env::temp_dir(),
+                        ) {
+                            Ok(srt_path) => parse_and_cleanup(&srt_path),
+                            Err(ff_err) => {
+                                Err(ExtractError::FfmpegFailed { source: ff_err })
+                            }
+                        }
+                    } else {
+                        Err(ExtractError::EmbeddedExtractionFailed {
+                            source: err,
+                        })
+                    }
+                }
+                Err(err) => Err(ExtractError::EmbeddedExtractionFailed {
+                    source: err,
+                }),
+            }
         }
     }
 }
@@ -294,16 +323,47 @@ mod tests {
     }
 
     #[test]
-    fn prepare_session_subtitles_embedded_missing_file_returns_extraction_error() {
+    fn prepare_session_subtitles_embedded_missing_file_without_ffmpeg_fallback() {
         let source = SubtitleSource::Embedded {
             video_path: PathBuf::from("/nonexistent/video.mkv"),
         };
-        let result = prepare_session_subtitles(source);
+        let result = prepare_session_subtitles_impl(source, None);
         assert!(result.is_err());
         assert!(
-            matches!(result.unwrap_err(), ExtractError::Extraction(_)),
-            "expected Extraction error for missing video file"
+            matches!(
+                result.unwrap_err(),
+                ExtractError::EmbeddedExtractionFailed { .. }
+            ),
+            "expected EmbeddedExtractionFailed for missing video file without ffmpeg"
         );
+    }
+
+    #[test]
+    fn prepare_session_subtitles_embedded_no_ffmpeg_binary_returns_embedded_error() {
+        let source = SubtitleSource::Embedded {
+            video_path: PathBuf::from("/nonexistent/video.mkv"),
+        };
+        let result = prepare_session_subtitles_impl(source, Some("nonexistent_ffmpeg_xyz"));
+        assert!(result.is_err());
+        assert!(
+            matches!(
+                result.unwrap_err(),
+                ExtractError::EmbeddedExtractionFailed { .. }
+            ),
+            "expected EmbeddedExtractionFailed when ffmpeg binary does not exist"
+        );
+    }
+
+    #[test]
+    fn prepare_session_subtitles_external_srt_still_works_after_refactor() {
+        let path = fixture_path("sample.srt");
+        let source = SubtitleSource::ExternalSrt {
+            srt_path: path,
+            video_path: None,
+        };
+        let result = prepare_session_subtitles_impl(source, None);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 5);
     }
 
     #[test]
