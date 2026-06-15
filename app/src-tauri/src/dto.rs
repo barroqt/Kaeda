@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use kaeda_core::session::Card;
-use kaeda_core::subtitle::{SubtitleEntry, srt_timestamp_to_ms};
+use kaeda_core::subtitle::{srt_timestamp_to_ms, SubtitleEntry};
 use kaeda_core::tokenizer::Token;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +47,14 @@ pub struct CardDto {
     pub explanation: String,
     pub deck: String,
     pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubtitleSearchResultDto {
+    pub subtitle_id: u32,
+    pub index: usize,
+    pub text: String,
+    pub start_ms: u64,
 }
 
 impl From<SubtitleEntry> for SubtitleDto {

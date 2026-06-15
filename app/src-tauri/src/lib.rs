@@ -16,7 +16,7 @@ use tauri::Manager;
 
 mod dto;
 mod video_server;
-use dto::{CardDto, SubtitleDto, TokenDto};
+use dto::{CardDto, SubtitleDto, SubtitleSearchResultDto, TokenDto};
 
 #[derive(Clone, serde::Serialize)]
 struct TranslationResult {
@@ -374,6 +374,26 @@ impl MiningSessionState {
             Ok(Some(path))
         }
     }
+
+    pub fn search_subtitles(&self, query: &str) -> Result<Vec<SubtitleSearchResultDto>, String> {
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let inner = self.inner.lock().map_err(|e| e.to_string())?;
+        let query_lower = query.to_lowercase();
+        Ok(inner
+            .subtitles
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.text.to_lowercase().contains(&query_lower))
+            .map(|(index, entry)| SubtitleSearchResultDto {
+                subtitle_id: entry.id,
+                index,
+                text: entry.text.clone(),
+                start_ms: srt_timestamp_to_ms(&entry.start_time).unwrap_or(0),
+            })
+            .collect())
+    }
 }
 
 #[tauri::command]
@@ -606,6 +626,14 @@ fn default_video_server() -> VideoServerState {
 }
 
 #[tauri::command]
+fn search_subtitles(
+    state: tauri::State<'_, MiningSessionState>,
+    query: String,
+) -> Result<Vec<SubtitleSearchResultDto>, String> {
+    state.search_subtitles(&query)
+}
+
+#[tauri::command]
 fn get_video_server_port(state: tauri::State<'_, VideoServerState>) -> u16 {
     state.port
 }
@@ -635,6 +663,7 @@ pub fn run() {
             is_line_known,
             get_video_path,
             get_video_server_port,
+            search_subtitles,
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|err| {
@@ -1563,5 +1592,71 @@ mod tests {
         assert!(!state.is_line_known(1).unwrap());
         state.mark_line_known(1).unwrap();
         assert!(state.is_line_known(1).unwrap());
+    }
+
+    #[test]
+    fn search_subtitles_returns_matching_subset() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+
+        let results = state.search_subtitles("날씨").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].subtitle_id, 2);
+        assert_eq!(results[0].index, 1);
+        assert_eq!(results[0].text, "오늘은 날씨가 좋네요.");
+        assert_eq!(results[0].start_ms, 5000);
+    }
+
+    #[test]
+    fn search_subtitles_empty_query_returns_empty_vec() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+
+        let results = state.search_subtitles("").unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn search_subtitles_before_session_returns_empty() {
+        let state = MiningSessionState::new();
+        let results = state.search_subtitles("날씨").unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn search_subtitles_case_insensitive_noop_for_hangul() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+
+        let results = state.search_subtitles("날씨").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].subtitle_id, 2);
     }
 }
