@@ -81,6 +81,32 @@ body {
   color: var(--button-hover-text);
 }
 
+#search-bar-container {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+#search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+#search-input::placeholder {
+  color: var(--text-muted);
+}
+
+#search-input:focus {
+  border-color: var(--accent-border);
+}
+
 #subtitle-list {
   flex: 1;
   overflow-y: auto;

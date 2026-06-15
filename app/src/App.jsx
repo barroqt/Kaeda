@@ -32,6 +32,9 @@ export default function App() {
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
   const [sessionError, setSessionError] = useState(null);
   const [toasts, setToasts] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const searchTimer = useRef(null);
   const navigateRef = useRef(null);
   const tokenNavRef = useRef(null);
   const saveRef = useRef(null);
@@ -106,6 +109,25 @@ export default function App() {
     });
     return () => { unlisten.then((fn) => fn()); };
   }, []);
+
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    searchTimer.current = setTimeout(() => {
+      invoke("search_subtitles", { query: searchQuery })
+        .then((results) => setSearchResults(results))
+        .catch((err) => {
+          console.error("search_subtitles failed:", err);
+          setSearchResults([]);
+        });
+    }, 250);
+    return () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    };
+  }, [searchQuery]);
 
   useEffect(() => {
     if (selectedTokenIndex < 0) return;
@@ -492,6 +514,17 @@ export default function App() {
             <span id="session-progress">{currentIndex + 1} / {subtitles.length}</span>
             {deckName && <span id="session-deck">{deckName}</span>}
             {sessionMode && <span id="session-source">{sessionMode === "external" ? "SRT" : "Embedded"}</span>}
+          </div>
+        )}
+        {current && (
+          <div id="search-bar-container">
+            <input
+              id="search-input"
+              type="text"
+              placeholder="Search in subtitles…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
         )}
         <div id="subtitle-list">
