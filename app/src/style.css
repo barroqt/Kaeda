@@ -107,6 +107,116 @@ body {
   border-color: var(--accent-border);
 }
 
+.search-results-container {
+  background-color: #e2cf9f;
+  border: 1px solid #6B3E2E;
+  border-radius: 4px;
+  margin-bottom: 6px;
+  max-height: 10rem;
+  overflow-y: auto;
+  padding: 4px 6px;
+}
+
+.dark .search-results-container {
+  background-color: #1e1910;
+  border-color: #3a3020;
+}
+
+.search-results-header {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #A63D5E;
+  padding-bottom: 2px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid #6B3E2E;
+}
+
+.dark .search-results-header {
+  color: #c9637a;
+  border-bottom-color: #3a3020;
+}
+
+.search-result-item {
+  padding: 2px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #3B5BA5;
+  border-bottom: 1px solid rgba(107, 62, 46, 0.15);
+}
+
+.search-result-item:last-child {
+  border-bottom: none;
+}
+
+.dark .search-result-item {
+  border-bottom-color: rgba(58, 48, 32, 0.6);
+}
+
+.search-result-item:hover {
+  background-color: rgba(231, 168, 178, 0.2);
+  cursor: pointer;
+}
+
+.dark .search-result-item:hover {
+  background-color: rgba(231, 168, 178, 0.12);
+}
+
+.search-result-item.focused {
+  background-color: rgba(231, 168, 178, 0.35);
+  outline: 1px solid #A63D5E;
+  outline-offset: -1px;
+}
+
+.dark .search-result-item.focused {
+  background-color: rgba(231, 168, 178, 0.2);
+  outline-color: #c9637a;
+}
+
+.search-result-item.active {
+  background-color: rgba(166, 61, 94, 0.2);
+  border-left: 3px solid #A63D5E;
+}
+
+.dark .search-result-item.active {
+  background-color: rgba(166, 61, 94, 0.25);
+  border-left-color: #c9637a;
+}
+
+.search-result-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.8rem;
+  color: #3B5BA5;
+}
+
+.dark .search-result-line {
+  color: #6b8bc5;
+}
+
+.search-result-timestamp {
+  font-size: 0.75rem;
+  color: #6B3E2E;
+  opacity: 0.8;
+  font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+}
+
+.dark .search-result-timestamp {
+  color: #8a7050;
+}
+
+.search-results-empty {
+  font-size: 0.8rem;
+  color: #6B3E2E;
+  opacity: 0.6;
+  padding: 4px;
+}
+
+.dark .search-results-empty {
+  color: #8a7050;
+}
+
 #subtitle-list {
   flex: 1;
   overflow-y: auto;

@@ -6,6 +6,15 @@ import VideoPane from "./components/VideoPane";
 
 const STORAGE_KEY = "kaeda-dark-mode";
 
+function formatMs(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const millis = ms % 1000;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(millis).padStart(3, "0")}`;
+}
+
 function getInitialDark() {
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored !== null) return stored === "true";
@@ -34,7 +43,9 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
+  const [searchHighlightIndex, setSearchHighlightIndex] = useState(-1);
   const searchTimer = useRef(null);
+  const searchNavRef = useRef({ query: "", results: [], highlightIndex: -1 });
   const navigateRef = useRef(null);
   const tokenNavRef = useRef(null);
   const saveRef = useRef(null);
@@ -44,6 +55,7 @@ export default function App() {
   const timeUpdateRef = useRef({ subtitles: [], currentIndex: 0, selectIndex: async () => {} });
   const replayTimeoutRef = useRef(null);
   const toastIdRef = useRef(0);
+  const searchInputRef = useRef(null);
 
   function showToast(message, type = "info") {
     const id = ++toastIdRef.current;
@@ -88,6 +100,11 @@ export default function App() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [currentIndex]);
 
+  useEffect(() => {
+    const el = document.querySelector(".search-result-item.focused");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [searchHighlightIndex]);
+
   const fetchingLemmaRef = useRef(null);
 
   useEffect(() => {
@@ -127,6 +144,22 @@ export default function App() {
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current);
     };
+  }, [searchQuery]);
+
+  useEffect(() => {
+    setSearchHighlightIndex(-1);
+  }, [searchResults]);
+
+  useEffect(() => {
+    if (!searchQuery.trim()) return;
+    function handleClickOutside(e) {
+      const container = e.target.closest(".search-results-container, #search-input, #search-bar-container");
+      if (!container) {
+        setSearchQuery("");
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [searchQuery]);
 
   useEffect(() => {
@@ -416,6 +449,7 @@ export default function App() {
   markKnownRef.current = handleMarkKnown;
   replayRef.current = handleReplay;
   timeUpdateRef.current = { subtitles, currentIndex, selectIndex };
+  searchNavRef.current = { query: searchQuery, results: searchResults, highlightIndex: searchHighlightIndex, selectIndex };
 
   useEffect(() => {
     function isInputFocused() {
@@ -424,6 +458,43 @@ export default function App() {
     }
 
     function handleKey(e) {
+      if (e.key === "Escape") {
+        setSearchQuery("");
+        document.activeElement?.blur();
+        return;
+      }
+      if ((e.key === "f" || e.key === "F") && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+      if (searchNavRef.current.query.trim() && searchNavRef.current.results.length > 0) {
+        if (e.key === "ArrowDown" && !e.metaKey && !e.ctrlKey) {
+          e.preventDefault();
+          setSearchHighlightIndex(prev =>
+            prev < searchNavRef.current.results.length - 1 ? prev + 1 : 0
+          );
+          return;
+        }
+        if (e.key === "ArrowUp" && !e.metaKey && !e.ctrlKey) {
+          e.preventDefault();
+          setSearchHighlightIndex(prev =>
+            prev > 0 ? prev - 1 : searchNavRef.current.results.length - 1
+          );
+          return;
+        }
+        if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) {
+          e.preventDefault();
+          const nav = searchNavRef.current;
+          const idx = nav.highlightIndex;
+          if (idx >= 0 && idx < nav.results.length) {
+            nav.selectIndex(nav.results[idx].index);
+            setSearchQuery("");
+            document.activeElement?.blur();
+          }
+          return;
+        }
+      }
       if (isInputFocused()) return;
       if (e.key === "w" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
@@ -519,12 +590,45 @@ export default function App() {
         {current && (
           <div id="search-bar-container">
             <input
+              ref={searchInputRef}
               id="search-input"
               type="text"
               placeholder="Search in subtitles…"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck="false"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setSearchQuery("");
+                  e.target.blur();
+                }
+              }}
             />
+          </div>
+        )}
+        {searchQuery.trim() && (
+          <div className="search-results-container">
+            {searchResults.length > 0 ? (
+              <>
+                <div className="search-results-header">
+                  검색 결과 ({searchResults.length}) / Results ({searchResults.length})
+                </div>
+                {searchResults.map((r, i) => (
+                  <div
+                    key={r.subtitle_id}
+                    className={"search-result-item" + (r.index === currentIndex ? " active" : "") + (i === searchHighlightIndex ? " focused" : "")}
+                    onClick={() => { selectIndex(r.index); setSearchQuery(""); }}
+                  >
+                    <div className="search-result-timestamp">{formatMs(r.start_ms)}</div>
+                    <div className="search-result-line">{r.text}</div>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <div className="search-results-empty">No matches</div>
+            )}
           </div>
         )}
         <div id="subtitle-list">
