@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use kaeda_core::session::Card;
-use kaeda_core::subtitle::{srt_timestamp_to_ms, SubtitleEntry};
+use kaeda_core::subtitle::{SubtitleEntry, srt_timestamp_to_ms};
 use kaeda_core::tokenizer::Token;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
