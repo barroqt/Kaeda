@@ -3,7 +3,6 @@ use thiserror::Error;
 
 use crate::embedded_subtitles;
 use crate::ffmpeg;
-use crate::ffmpeg_subtitles;
 use crate::util::strip_html_tags;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -54,9 +53,7 @@ pub enum ExtractError {
     #[error("subtitle parsing error: {0}")]
     Parse(String),
     #[error("ffmpeg extraction failed: {source}")]
-    FfmpegFailed {
-        source: ffmpeg_subtitles::FfmpegExtractError,
-    },
+    FfmpegFailed { source: ffmpeg::FfmpegExtractError },
     #[error("embedded subtitle extraction failed: {source}")]
     EmbeddedExtractionFailed {
         source: embedded_subtitles::SubtitleExtractError,
@@ -99,7 +96,7 @@ pub(crate) fn prepare_session_subtitles_impl(
                         .map(ffmpeg::command_available)
                         .unwrap_or(false);
                     if ffmpeg_ok {
-                        match ffmpeg_subtitles::extract_with_ffmpeg_impl(
+                        match ffmpeg::extract_with_ffmpeg_impl(
                             ffmpeg_binary.unwrap(),
                             &video_path,
                             None,

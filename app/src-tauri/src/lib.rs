@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use kaeda_core::dictionary;
 use kaeda_core::embedded_subtitles;
-use kaeda_core::ffmpeg_subtitles;
+use kaeda_core::ffmpeg;
 use kaeda_core::session::{Card, Session};
 use kaeda_core::store::KnownLinesStore;
 use kaeda_core::subtitle::{
@@ -73,7 +73,7 @@ fn map_extract_error(err: ExtractError) -> SessionStartError {
             },
         },
         ExtractError::FfmpegFailed { source } => match source {
-            ffmpeg_subtitles::FfmpegExtractError::FfmpegNotFound => SessionStartError {
+            ffmpeg::FfmpegExtractError::FfmpegNotFound => SessionStartError {
                 code: "FFMPEG_NOT_FOUND".into(),
                 message: "Kaeda's built-in extractor could not read the subtitles, \
                           and ffmpeg is not installed. \
