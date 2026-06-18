@@ -33,6 +33,9 @@ export default function App() {
   const [selectedTokenIndex, setSelectedTokenIndex] = useState(-1);
   const [explanation, setExplanation] = useState("");
   const [explanationLoading, setExplanationLoading] = useState(false);
+  const [spanTranslation, setSpanTranslation] = useState("");
+  const [spanTranslationLoading, setSpanTranslationLoading] = useState(false);
+  const [spanTranslationError, setSpanTranslationError] = useState("");
   const [savedCard, setSavedCard] = useState(null);
   const [sessionCards, setSessionCards] = useState([]);
   const [viewingCards, setViewingCards] = useState(false);
@@ -96,6 +99,9 @@ export default function App() {
     setSelectedTokenIndex(-1);
     setExplanation("");
     setExplanationLoading(false);
+    setSpanTranslation("");
+    setSpanTranslationLoading(false);
+    setSpanTranslationError("");
     setSavedCard(null);
     fetchingLemmaRef.current = null;
   }, [currentIndex]);
@@ -759,24 +765,67 @@ export default function App() {
                 <label>Sentence</label>
                 <div className="card-sentence-row">
                   <div className="card-sentence">{current.text}</div>
-                  <button
-                    className="copy-span-btn"
-                    onClick={async () => {
-                      try {
-                        await invoke("copy_translation_span");
-                        showToast("Sentence span copied", "success");
-                      } catch (err) {
-                        showToast(`Error: ${err}`, "error");
-                      }
-                    }}
-                    title="Copy translation span to clipboard"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                    </svg>
-                  </button>
+                  <div className="card-sentence-actions">
+                    <button
+                      className="action-icon-btn"
+                      onClick={async () => {
+                        try {
+                          await invoke("copy_translation_span");
+                          showToast("Sentence span copied", "success");
+                        } catch (err) {
+                          showToast(`Error: ${err}`, "error");
+                        }
+                      }}
+                      title="Copy translation span to clipboard"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                      </svg>
+                    </button>
+                    <button
+                      className="action-icon-btn"
+                      onClick={async () => {
+                        setSpanTranslationLoading(true);
+                        setSpanTranslation("");
+                        setSpanTranslationError("");
+                        try {
+                          const result = await invoke("translate_current_span");
+                          setSpanTranslation(result);
+                        } catch (err) {
+                          const code = err?.code || "";
+                          if (code === "TRANSLATION_DISABLED") {
+                            setSpanTranslationError("Translation is not configured (see Settings).");
+                          } else {
+                            setSpanTranslationError("Could not reach DeepL. Please try again.");
+                          }
+                        } finally {
+                          setSpanTranslationLoading(false);
+                        }
+                      }}
+                      title="Translate current span via DeepL"
+                    >
+                      {spanTranslationLoading ? "Translating\u2026" : "Translate"}
+                    </button>
+                  </div>
                 </div>
+                {spanTranslation && (
+                  <div className="span-translation">
+                    <span className="span-translation-label">Translation:</span>
+                    <span>{spanTranslation}</span>
+                    <button
+                      className="copy-to-card-btn"
+                      onClick={() => setExplanation(`[TR] ${spanTranslation}`)}
+                    >
+                      Copy to Card
+                    </button>
+                  </div>
+                )}
+                {spanTranslationError && (
+                  <div className="span-translation span-translation-error">
+                    {spanTranslationError}
+                  </div>
+                )}
               </div>
 
               <div className="card-field">
