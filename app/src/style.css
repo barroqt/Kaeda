@@ -473,6 +473,33 @@ body {
   border-radius: 4px;
   border: 1px solid var(--border);
   transition: background 0.2s, border-color 0.2s, color 0.2s;
+  flex: 1;
+  min-width: 0;
+}
+
+.card-sentence-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.copy-span-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  line-height: 0;
+  flex-shrink: 0;
+  margin-top: 2px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.copy-span-btn:hover {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .word-tokens {

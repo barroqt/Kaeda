@@ -8,7 +8,8 @@ use kaeda_core::ffmpeg;
 use kaeda_core::session::{Card, Session};
 use kaeda_core::store::KnownLinesStore;
 use kaeda_core::subtitle::{
-    ExtractError, SubtitleEntry, SubtitleSource, prepare_session_subtitles, srt_timestamp_to_ms,
+    ExtractError, SubtitleEntry, SubtitleSource, build_translation_span, prepare_session_subtitles,
+    srt_timestamp_to_ms,
 };
 use kaeda_core::tokenizer::KoreanTokenizer;
 use tauri::Emitter;
@@ -375,6 +376,20 @@ impl MiningSessionState {
         }
     }
 
+    pub fn translation_span(&self) -> Result<String, String> {
+        let inner = self.inner.lock().map_err(|e| e.to_string())?;
+        if inner.session.is_none() {
+            return Err("no active session".to_string());
+        }
+        if inner.subtitles.is_empty() {
+            return Err("no subtitles loaded".to_string());
+        }
+        Ok(build_translation_span(
+            &inner.subtitles,
+            inner.current_index,
+        ))
+    }
+
     pub fn search_subtitles(&self, query: &str) -> Result<Vec<SubtitleSearchResultDto>, String> {
         if query.is_empty() {
             return Ok(Vec::new());
@@ -605,6 +620,14 @@ fn request_translation(
     Ok(None)
 }
 
+#[tauri::command]
+fn copy_translation_span(state: tauri::State<'_, MiningSessionState>) -> Result<(), String> {
+    let span = state.translation_span()?;
+    let mut clip = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    clip.set_text(&span).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 struct VideoServerState {
     port: u16,
 }
@@ -664,6 +687,7 @@ pub fn run() {
             get_video_path,
             get_video_server_port,
             search_subtitles,
+            copy_translation_span,
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|err| {
@@ -1639,6 +1663,88 @@ mod tests {
         let state = MiningSessionState::new();
         let results = state.search_subtitles("날씨").unwrap();
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn translation_span_returns_non_empty_with_active_session() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+
+        let span = state.translation_span().unwrap();
+        assert_eq!(span, "안녕하세요 반갑습니다.");
+    }
+
+    #[test]
+    fn translation_span_returns_error_without_session() {
+        let state = MiningSessionState::new();
+        let result = state.translation_span();
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "no active session");
+    }
+
+    #[test]
+    fn translation_span_middle_index_includes_neighbors() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+
+        state.set_current_index(2).unwrap();
+        let span = state.translation_span().unwrap();
+        assert_eq!(span, "저는 공부를 하고 있어요.");
+    }
+
+    #[test]
+    fn translation_span_first_index_excludes_prev() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+
+        let span = state.translation_span().unwrap();
+        assert_eq!(span, "안녕하세요 반갑습니다.");
+    }
+
+    #[test]
+    fn translation_span_last_index_excludes_next() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+
+        state.set_current_index(4).unwrap();
+        let span = state.translation_span().unwrap();
+        assert_eq!(span, "한국어 단어를 배웁시다.");
     }
 
     #[test]

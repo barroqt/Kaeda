@@ -167,6 +167,30 @@ pub fn srt_timestamp_to_ms(timestamp: &str) -> Option<u64> {
     Some(hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + millis)
 }
 
+fn ends_with_sentence_ending(s: &str) -> bool {
+    s.trim().ends_with('.') || s.trim().ends_with('?') || s.trim().ends_with('!')
+}
+
+pub fn build_translation_span(subtitles: &[SubtitleEntry], current_index: usize) -> String {
+    if current_index >= subtitles.len() {
+        return String::new();
+    }
+
+    let mut parts = Vec::new();
+
+    if current_index > 0 && !ends_with_sentence_ending(&subtitles[current_index - 1].text) {
+        parts.push(subtitles[current_index - 1].text.as_str());
+    }
+    parts.push(subtitles[current_index].text.as_str());
+    if current_index + 1 < subtitles.len()
+        && !ends_with_sentence_ending(&subtitles[current_index].text)
+    {
+        parts.push(subtitles[current_index + 1].text.as_str());
+    }
+
+    parts.join("\n")
+}
+
 fn parse_timestamp_line(line: &str) -> Option<(String, String)> {
     let mut parts = line.split(" --> ");
     let start = parts.next()?.trim().to_string();
@@ -355,6 +379,240 @@ mod tests {
         let result = prepare_session_subtitles_impl(source, None);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().len(), 5);
+    }
+
+    #[test]
+    fn build_translation_span_middle_index_returns_prev_current_next() {
+        let subtitles = vec![
+            SubtitleEntry {
+                id: 1,
+                start_time: "00:00:01,000".into(),
+                end_time: "00:00:04,000".into(),
+                text: "첫 번째 자막".into(),
+            },
+            SubtitleEntry {
+                id: 2,
+                start_time: "00:00:05,000".into(),
+                end_time: "00:00:08,000".into(),
+                text: "두 번째 자막".into(),
+            },
+            SubtitleEntry {
+                id: 3,
+                start_time: "00:00:09,000".into(),
+                end_time: "00:00:12,000".into(),
+                text: "세 번째 자막".into(),
+            },
+        ];
+
+        let span = build_translation_span(&subtitles, 1);
+        assert_eq!(span, "첫 번째 자막\n두 번째 자막\n세 번째 자막");
+    }
+
+    #[test]
+    fn build_translation_span_first_index_returns_current_and_next() {
+        let subtitles = vec![
+            SubtitleEntry {
+                id: 1,
+                start_time: "00:00:01,000".into(),
+                end_time: "00:00:04,000".into(),
+                text: "첫 번째 자막".into(),
+            },
+            SubtitleEntry {
+                id: 2,
+                start_time: "00:00:05,000".into(),
+                end_time: "00:00:08,000".into(),
+                text: "두 번째 자막".into(),
+            },
+        ];
+
+        let span = build_translation_span(&subtitles, 0);
+        assert_eq!(span, "첫 번째 자막\n두 번째 자막");
+    }
+
+    #[test]
+    fn build_translation_span_last_index_returns_prev_and_current() {
+        let subtitles = vec![
+            SubtitleEntry {
+                id: 1,
+                start_time: "00:00:01,000".into(),
+                end_time: "00:00:04,000".into(),
+                text: "첫 번째 자막".into(),
+            },
+            SubtitleEntry {
+                id: 2,
+                start_time: "00:00:05,000".into(),
+                end_time: "00:00:08,000".into(),
+                text: "두 번째 자막".into(),
+            },
+        ];
+
+        let span = build_translation_span(&subtitles, 1);
+        assert_eq!(span, "첫 번째 자막\n두 번째 자막");
+    }
+
+    #[test]
+    fn build_translation_span_single_line_returns_that_line() {
+        let subtitles = vec![SubtitleEntry {
+            id: 1,
+            start_time: "00:00:01,000".into(),
+            end_time: "00:00:04,000".into(),
+            text: "유일한 자막".into(),
+        }];
+
+        let span = build_translation_span(&subtitles, 0);
+        assert_eq!(span, "유일한 자막");
+    }
+
+    #[test]
+    fn build_translation_span_out_of_bounds_returns_empty() {
+        let subtitles = vec![SubtitleEntry {
+            id: 1,
+            start_time: "00:00:01,000".into(),
+            end_time: "00:00:04,000".into(),
+            text: "유일한 자막".into(),
+        }];
+
+        let span = build_translation_span(&subtitles, 5);
+        assert_eq!(span, "");
+    }
+
+    #[test]
+    fn build_translation_span_empty_list_returns_empty() {
+        let subtitles: Vec<SubtitleEntry> = vec![];
+        let span = build_translation_span(&subtitles, 0);
+        assert_eq!(span, "");
+    }
+
+    #[test]
+    fn build_translation_span_skips_prev_when_it_ends_with_period() {
+        let subtitles = vec![
+            SubtitleEntry {
+                id: 1,
+                start_time: "00:00:01,000".into(),
+                end_time: "00:00:04,000".into(),
+                text: "첫 번째 문장입니다.".into(),
+            },
+            SubtitleEntry {
+                id: 2,
+                start_time: "00:00:05,000".into(),
+                end_time: "00:00:08,000".into(),
+                text: "두 번째 문장입니다. 중간에".into(),
+            },
+        ];
+
+        let span = build_translation_span(&subtitles, 1);
+        assert_eq!(span, "두 번째 문장입니다. 중간에");
+    }
+
+    #[test]
+    fn build_translation_span_skips_next_when_current_ends_with_period() {
+        let subtitles = vec![
+            SubtitleEntry {
+                id: 1,
+                start_time: "00:00:01,000".into(),
+                end_time: "00:00:04,000".into(),
+                text: "끝난 문장입니다.".into(),
+            },
+            SubtitleEntry {
+                id: 2,
+                start_time: "00:00:05,000".into(),
+                end_time: "00:00:08,000".into(),
+                text: "다음 자막입니다.".into(),
+            },
+        ];
+
+        let span = build_translation_span(&subtitles, 0);
+        assert_eq!(span, "끝난 문장입니다.");
+    }
+
+    #[test]
+    fn build_translation_span_skips_both_when_both_are_sentence_endings() {
+        let subtitles = vec![
+            SubtitleEntry {
+                id: 1,
+                start_time: "00:00:01,000".into(),
+                end_time: "00:00:04,000".into(),
+                text: "가버렸어요.".into(),
+            },
+            SubtitleEntry {
+                id: 2,
+                start_time: "00:00:05,000".into(),
+                end_time: "00:00:08,000".into(),
+                text: "이건 좀 길어서 중간에 잘린".into(),
+            },
+            SubtitleEntry {
+                id: 3,
+                start_time: "00:00:09,000".into(),
+                end_time: "00:00:12,000".into(),
+                text: "문장이에요 계속?".into(),
+            },
+        ];
+
+        let span = build_translation_span(&subtitles, 1);
+        assert_eq!(span, "이건 좀 길어서 중간에 잘린\n문장이에요 계속?");
+    }
+
+    #[test]
+    fn build_translation_span_skips_next_when_current_ends_with_question_mark() {
+        let subtitles = vec![
+            SubtitleEntry {
+                id: 1,
+                start_time: "00:00:01,000".into(),
+                end_time: "00:00:04,000".into(),
+                text: "뭐라고?".into(),
+            },
+            SubtitleEntry {
+                id: 2,
+                start_time: "00:00:05,000".into(),
+                end_time: "00:00:08,000".into(),
+                text: "이건 안 붙어야 해요.".into(),
+            },
+        ];
+
+        let span = build_translation_span(&subtitles, 0);
+        assert_eq!(span, "뭐라고?");
+    }
+
+    #[test]
+    fn build_translation_span_skips_next_when_current_ends_with_exclamation() {
+        let subtitles = vec![
+            SubtitleEntry {
+                id: 1,
+                start_time: "00:00:01,000".into(),
+                end_time: "00:00:04,000".into(),
+                text: "대박!".into(),
+            },
+            SubtitleEntry {
+                id: 2,
+                start_time: "00:00:05,000".into(),
+                end_time: "00:00:08,000".into(),
+                text: "이건 안 붙어야 해요.".into(),
+            },
+        ];
+
+        let span = build_translation_span(&subtitles, 0);
+        assert_eq!(span, "대박!");
+    }
+
+    #[test]
+    fn build_translation_span_includes_next_when_current_ends_with_comma() {
+        let subtitles = vec![
+            SubtitleEntry {
+                id: 1,
+                start_time: "00:00:01,000".into(),
+                end_time: "00:00:04,000".into(),
+                text: "중간에,".into(),
+            },
+            SubtitleEntry {
+                id: 2,
+                start_time: "00:00:05,000".into(),
+                end_time: "00:00:08,000".into(),
+                text: "계속되는 문장".into(),
+            },
+        ];
+
+        let span = build_translation_span(&subtitles, 0);
+        assert_eq!(span, "중간에,\n계속되는 문장");
     }
 
     #[test]

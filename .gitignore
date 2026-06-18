@@ -31,3 +31,5 @@ app/node_modules
 app/videos
 *.srt
 *.tsv
+
+.env
