@@ -16,6 +16,7 @@ use tauri::Emitter;
 use tauri::Manager;
 
 mod dto;
+mod translation;
 mod video_server;
 use dto::{CardDto, SubtitleDto, SubtitleSearchResultDto, TokenDto};
 
