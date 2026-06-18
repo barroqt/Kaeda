@@ -2,46 +2,9 @@
 
 A tool that helps language learner save their content into flashcards.
 
-- **srt-miner** (CLI / TUI) — parse `.srt` subtitle files from a terminal, tokenize Korean text,
-  look up definitions, and build an SRS deck.
-- **Kaeda** (Tauri desktop app) — the same mining workflow with a graphical
-  interface: video + SRT playback, card preview, session management, and
+- **Kaeda** (Tauri desktop app) — video + SRT playback, card preview, session management, and
   Anki-compatible TSV export.
-
-## CLI / TUI
-
-### Commands
-
-| Command                  | Description                 |
-| ------------------------ | --------------------------- |
-| `kaeda mine <file.srt>`  | Start a mining session      |
-| `kaeda stats`            | Show deck and session stats |
-| `kaeda known add <word>` | Manually add a known word   |
-| `kaeda known list`       | List all known words        |
-
-### TUI controls (within `mine`)
-
-| Key       | Action              |
-| --------- | ------------------- |
-| `↑` / `↓` | Navigate candidates |
-| `←` / `→` | Navigate subtitles  |
-| `a`       | Add word to deck    |
-| `k`       | Mark word as known  |
-| `s`       | Skip subtitle       |
-| `q`       | Quit                |
-
-The interface shows three panes: **context** (current subtitle),
-**candidates** (tokenized words), and **definitions** (dictionary lookup).
-
-### Build & run
-
-```bash
-cargo build                    # builds root binary + core
-cargo run -- mine <file.srt>   # start TUI mining session
-cargo run -- stats             # show stats
-cargo run -- known add <word>  # add known word
-cargo run -- known list        # list known words
-```
+- **srt-miner** (CLI / TUI) — parse `.srt` subtitle files from a terminal, tokenize Korean text, look up definitions, and build an SRS deck.
 
 ## Kaeda desktop app
 
@@ -87,7 +50,42 @@ cards, and export.
 | `⌘+Enter` / `Ctrl+Enter` | Save card                  |
 | Arrow keys + Space    | Video playback controls       |
 
-### Debugging
+## CLI / TUI
+
+### Commands
+
+| Command                  | Description                 |
+| ------------------------ | --------------------------- |
+| `kaeda mine <file.srt>`  | Start a mining session      |
+| `kaeda stats`            | Show deck and session stats |
+| `kaeda known add <word>` | Manually add a known word   |
+| `kaeda known list`       | List all known words        |
+
+### TUI controls (within `mine`)
+
+| Key       | Action              |
+| --------- | ------------------- |
+| `↑` / `↓` | Navigate candidates |
+| `←` / `→` | Navigate subtitles  |
+| `a`       | Add word to deck    |
+| `k`       | Mark word as known  |
+| `s`       | Skip subtitle       |
+| `q`       | Quit                |
+
+The interface shows three panes: **context** (current subtitle),
+**candidates** (tokenized words), and **definitions** (dictionary lookup).
+
+### Build & run
+
+```bash
+cargo build                    # builds root binary + core
+cargo run -- mine <file.srt>   # start TUI mining session
+cargo run -- stats             # show stats
+cargo run -- known add <word>  # add known word
+cargo run -- known list        # list known words
+```
+
+## Debugging
 
 Backend logging uses the [`tracing`](https://docs.rs/tracing) crate. Set `RUST_LOG` to control verbosity:
 

@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn update_translation_settings_rejects_missing_key_when_enabled() {
         let state = std::sync::Mutex::new(AppSettings::default());
-        let mut settings = state.lock().unwrap();
+        let settings = state.lock().unwrap();
         let new = UpdateTranslationSettings {
             enabled: true,
             api_key: "".into(),
