@@ -1,3 +1,5 @@
+use tracing::debug;
+
 const DEEPL_API_URL: &str = "https://api-free.deepl.com/v2/translate";
 
 #[derive(Clone, Debug)]
@@ -37,22 +39,27 @@ pub(crate) async fn translate_with_deepl_at_url(
 
     let client = reqwest::Client::new();
     let params = [
-        ("auth_key", config.api_key.as_str()),
         ("text", text),
         ("source_lang", config.source_lang.as_str()),
         ("target_lang", config.target_lang.as_str()),
     ];
+    let auth_header = format!("DeepL-Auth-Key {}", config.api_key);
 
     let response = client
         .post(url)
+        .header("Authorization", &auth_header)
         .form(&params)
         .send()
         .await
         .map_err(|e| TranslationError::HttpError(e.to_string()))?;
 
-    if !response.status().is_success() {
-        let status = response.status();
+    let status = response.status();
+    debug!("DeepL HTTP status: {status}");
+
+    if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
+        let preview: String = body.chars().take(200).collect();
+        debug!("DeepL error body: {preview}");
         return Err(TranslationError::ApiError(format!("HTTP {status}: {body}")));
     }
 

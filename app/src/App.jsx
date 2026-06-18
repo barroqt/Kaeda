@@ -794,10 +794,12 @@ export default function App() {
                           setSpanTranslation(result);
                         } catch (err) {
                           const code = err?.code || "";
+                          const msg  = err?.message || String(err);
                           if (code === "TRANSLATION_DISABLED") {
                             setSpanTranslationError("Translation is not configured (see Settings).");
                           } else {
-                            setSpanTranslationError("Could not reach DeepL. Please try again.");
+                            console.error(`[translate_current_span] ${code}: ${msg}`);
+                            setSpanTranslationError(`Translation failed (${code}): ${msg}`);
                           }
                         } finally {
                           setSpanTranslationLoading(false);
@@ -815,7 +817,7 @@ export default function App() {
                     <span>{spanTranslation}</span>
                     <button
                       className="copy-to-card-btn"
-                      onClick={() => setExplanation(`[TR] ${spanTranslation}`)}
+                      onClick={() => setExplanation(spanTranslation)}
                     >
                       Copy to Card
                     </button>

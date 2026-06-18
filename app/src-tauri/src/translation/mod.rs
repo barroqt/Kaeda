@@ -1,8 +1,8 @@
 pub mod deepl;
 
-pub use deepl::{DeepLConfig, TranslationError, translate_with_deepl};
 #[cfg(test)]
 pub(crate) use deepl::translate_with_deepl_at_url;
+pub use deepl::{DeepLConfig, TranslationError, translate_with_deepl};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AppSettings {

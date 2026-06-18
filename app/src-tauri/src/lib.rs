@@ -14,6 +14,7 @@ use kaeda_core::subtitle::{
 use kaeda_core::tokenizer::KoreanTokenizer;
 use tauri::Emitter;
 use tauri::Manager;
+use tracing::{debug, error, info, warn};
 
 mod dto;
 mod translation;
@@ -403,9 +404,23 @@ impl MiningSessionState {
 
         let span = self.translation_span().map_err(AppError::session_error)?;
 
-        translation::translate_with_deepl(&span, &config)
-            .await
-            .map_err(AppError::from)
+        let preview: String = span.chars().take(80).collect();
+        debug!(
+            "calling DeepL: source_lang={}, target_lang={}, text_preview={:?}",
+            config.source_lang, config.target_lang, preview,
+        );
+
+        let result = translation::translate_with_deepl(&span, &config).await;
+
+        match &result {
+            Ok(text) => debug!(
+                "DeepL success: {:?}",
+                text.chars().take(80).collect::<String>()
+            ),
+            Err(e) => error!("DeepL error: {:?}", e),
+        }
+
+        result.map_err(AppError::from)
     }
 
     #[cfg(test)]
@@ -639,7 +654,7 @@ fn request_translation(
             }
             Ok(None) => None,
             Err(e) => {
-                eprintln!("dictionary lookup failed for '{lemma_clone}': {e:?}");
+                warn!("dictionary lookup failed for '{lemma_clone}': {e:?}");
                 None
             }
         };
@@ -678,7 +693,7 @@ fn default_video_server() -> VideoServerState {
             VideoServerState { port }
         }
         Err(e) => {
-            eprintln!("video server failed to start: {e}");
+            error!("video server failed to start: {e}");
             VideoServerState { port: 0 }
         }
     }
@@ -702,7 +717,16 @@ async fn translate_current_span(
             .inner
             .lock()
             .map_err(|e| AppError::session_error(e.to_string()))?;
-        settings.to_translation_settings()
+        let ts = settings.to_translation_settings();
+        let provider_name = match &ts.provider {
+            TranslationProvider::DeepL(_) => "DeepL",
+            TranslationProvider::Disabled => "Disabled",
+        };
+        debug!(
+            "translate_current_span called: provider={}, target_lang={}",
+            provider_name, settings.deepl_target_lang,
+        );
+        ts
     };
     state.translate_current_span(&ts).await
 }
@@ -726,6 +750,13 @@ fn update_translation_settings(
     new_settings: translation::UpdateTranslationSettings,
 ) -> Result<(), String> {
     let mut settings = state.inner.lock().map_err(|e| e.to_string())?;
+    info!(
+        "update_translation_settings: enabled={}, has_new_key={}, target_lang={}, had_existing_key={}",
+        new_settings.enabled,
+        !new_settings.api_key.is_empty(),
+        new_settings.target_lang,
+        settings.deepl_api_key.is_some(),
+    );
 
     if new_settings.enabled {
         if new_settings.api_key.is_empty() && settings.deepl_api_key.is_none() {
@@ -744,6 +775,7 @@ fn update_translation_settings(
         .app_data_dir()
         .map_err(|e| e.to_string())?;
     let config_path = app_data_dir.join("config.json");
+    info!("saving config to: {}", config_path.display());
     translation::save_settings(&config_path, &settings)
 }
 
@@ -763,10 +795,19 @@ pub fn run() {
         .manage(TranslationManager::new())
         .manage(default_video_server())
         .setup(|app| {
-            let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .expect("failed to get app data dir");
             std::fs::create_dir_all(&app_data_dir).expect("failed to create app data dir");
             let config_path = app_data_dir.join("config.json");
             let settings = translation::load_settings(&config_path);
+            info!(
+                "loaded config: enabled={}, has_key={}, target={}",
+                settings.deepl_enabled,
+                settings.deepl_api_key.is_some(),
+                settings.deepl_target_lang,
+            );
             app.manage(AppSettingsState {
                 inner: std::sync::Mutex::new(settings),
             });
@@ -799,7 +840,7 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|err| {
-            eprintln!("error: {err}");
+            error!("{err}");
             std::process::exit(1);
         });
 
@@ -1922,7 +1963,9 @@ mod tests {
             .mock("POST", "/translate")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"translations":[{"detected_source_language":"KO","text":"Hello everyone"}]}"#)
+            .with_body(
+                r#"{"translations":[{"detected_source_language":"KO","text":"Hello everyone"}]}"#,
+            )
             .create();
 
         let state = MiningSessionState::new();
@@ -1946,9 +1989,7 @@ mod tests {
         };
 
         let url = format!("{}/translate", server.url());
-        let result = state
-            .translate_current_span_at_url(&settings, &url)
-            .await;
+        let result = state.translate_current_span_at_url(&settings, &url).await;
         assert_eq!(result.unwrap(), "Hello everyone");
         mock.assert();
     }

@@ -86,3 +86,18 @@ cards, and export.
 | `K`                   | Mark current line as known    |
 | `⌘+Enter` / `Ctrl+Enter` | Save card                  |
 | Arrow keys + Space    | Video playback controls       |
+
+### Debugging
+
+Backend logging uses the [`tracing`](https://docs.rs/tracing) crate. Set `RUST_LOG` to control verbosity:
+
+| `RUST_LOG`      | Shows                                 |
+| --------------- | ------------------------------------- |
+| `info` (default)| config loads, saves, settings changes |
+| `debug`         | + DeepL API call details, HTTP status |
+| `error`         | failures only                         |
+
+```bash
+RUST_LOG=debug cargo tauri dev   # full trace
+RUST_LOG=info  cargo tauri dev   # normal (default)
+```
