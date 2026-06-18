@@ -19,7 +19,7 @@ mod dto;
 mod translation;
 mod video_server;
 use dto::{CardDto, SubtitleDto, SubtitleSearchResultDto, TokenDto};
-use translation::{AppError, TranslationProvider, TranslationSettings};
+use translation::{AppError, AppSettings, TranslationProvider, TranslationSettings};
 
 #[derive(Clone, serde::Serialize)]
 struct TranslationResult {
@@ -695,9 +695,60 @@ fn search_subtitles(
 #[tauri::command]
 async fn translate_current_span(
     state: tauri::State<'_, MiningSessionState>,
-    settings: tauri::State<'_, TranslationSettings>,
+    settings_state: tauri::State<'_, AppSettingsState>,
 ) -> Result<String, AppError> {
-    state.translate_current_span(&settings).await
+    let ts = {
+        let settings = settings_state
+            .inner
+            .lock()
+            .map_err(|e| AppError::session_error(e.to_string()))?;
+        settings.to_translation_settings()
+    };
+    state.translate_current_span(&ts).await
+}
+
+#[tauri::command]
+fn get_translation_settings(
+    state: tauri::State<'_, AppSettingsState>,
+) -> Result<translation::TranslationSettingsDto, String> {
+    let settings = state.inner.lock().map_err(|e| e.to_string())?;
+    Ok(translation::TranslationSettingsDto {
+        enabled: settings.deepl_enabled,
+        has_api_key: settings.deepl_api_key.is_some(),
+        target_lang: settings.deepl_target_lang.clone(),
+    })
+}
+
+#[tauri::command]
+fn update_translation_settings(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppSettingsState>,
+    new_settings: translation::UpdateTranslationSettings,
+) -> Result<(), String> {
+    let mut settings = state.inner.lock().map_err(|e| e.to_string())?;
+
+    if new_settings.enabled {
+        if new_settings.api_key.is_empty() && settings.deepl_api_key.is_none() {
+            return Err("API key is required to enable DeepL translation".to_string());
+        }
+        if !new_settings.api_key.is_empty() {
+            settings.deepl_api_key = Some(new_settings.api_key);
+        }
+    }
+
+    settings.deepl_enabled = new_settings.enabled;
+    settings.deepl_target_lang = new_settings.target_lang;
+
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    let config_path = app_data_dir.join("config.json");
+    translation::save_settings(&config_path, &settings)
+}
+
+pub struct AppSettingsState {
+    pub inner: std::sync::Mutex<AppSettings>,
 }
 
 #[tauri::command]
@@ -711,8 +762,15 @@ pub fn run() {
         .manage(MiningSessionState::new())
         .manage(TranslationManager::new())
         .manage(default_video_server())
-        .manage(TranslationSettings {
-            provider: TranslationProvider::Disabled,
+        .setup(|app| {
+            let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
+            std::fs::create_dir_all(&app_data_dir).expect("failed to create app data dir");
+            let config_path = app_data_dir.join("config.json");
+            let settings = translation::load_settings(&config_path);
+            app.manage(AppSettingsState {
+                inner: std::sync::Mutex::new(settings),
+            });
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             start_session,
@@ -736,6 +794,8 @@ pub fn run() {
             search_subtitles,
             copy_translation_span,
             translate_current_span,
+            get_translation_settings,
+            update_translation_settings,
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|err| {

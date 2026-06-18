@@ -25,6 +25,11 @@ export default function App() {
   const [subtitles, setSubtitles] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [dark, setDark] = useState(getInitialDark);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsEnabled, setSettingsEnabled] = useState(false);
+  const [settingsApiKey, setSettingsApiKey] = useState("");
+  const [settingsTargetLang, setSettingsTargetLang] = useState("EN");
+  const [settingsHasApiKey, setSettingsHasApiKey] = useState(false);
   const [selectedTokenIndex, setSelectedTokenIndex] = useState(-1);
   const [explanation, setExplanation] = useState("");
   const [explanationLoading, setExplanationLoading] = useState(false);
@@ -373,6 +378,45 @@ export default function App() {
     }, durationMs);
   }
 
+  async function openSettings() {
+    try {
+      const s = await invoke("get_translation_settings");
+      setSettingsEnabled(s.enabled);
+      setSettingsHasApiKey(s.has_api_key);
+      setSettingsApiKey("");
+      setSettingsTargetLang(s.target_lang);
+      setSettingsOpen(true);
+    } catch (err) {
+      showToast(`Failed to load settings: ${err}`, "error");
+    }
+  }
+
+  function closeSettings() {
+    setSettingsOpen(false);
+  }
+
+  async function handleSaveSettings() {
+    if (settingsEnabled && !settingsApiKey && !settingsHasApiKey) {
+      showToast("API key is required to enable DeepL translation", "error");
+      return;
+    }
+    try {
+      await invoke("update_translation_settings", {
+        newSettings: {
+          enabled: settingsEnabled,
+          api_key: settingsApiKey,
+          target_lang: settingsTargetLang,
+        },
+      });
+      setSettingsHasApiKey(settingsEnabled && (!!settingsApiKey || settingsHasApiKey));
+      closeSettings();
+      showToast("Settings saved", "success");
+    } catch (err) {
+      const msg = typeof err === "object" && err !== null ? err.message || String(err) : String(err);
+      showToast(`Failed to save settings: ${msg}`, "error");
+    }
+  }
+
   async function loadSessionCards() {
     try {
       const cards = await invoke("get_session_cards");
@@ -579,6 +623,7 @@ export default function App() {
           <button onClick={() => setDark((d) => !d)}>
             {dark ? "Light" : "Dark"}
           </button>
+          <button onClick={openSettings}>Settings</button>
         </div>
         {current && (
           <div id="session-info">
@@ -906,6 +951,69 @@ export default function App() {
             <button className="dialog-btn dialog-btn-cancel" onClick={() => setShowNewSessionModal(false)}>
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {settingsOpen && (
+        <div className="dialog-overlay" onClick={closeSettings}>
+          <div className="dialog settings-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Translation Settings</h3>
+
+            <div className="dialog-field">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={settingsEnabled}
+                  onChange={(e) => setSettingsEnabled(e.target.checked)}
+                />
+                Enable sentence translation with DeepL
+              </label>
+            </div>
+
+            {settingsEnabled && (
+              <>
+                <div className="dialog-field">
+                  <label>DeepL API Key</label>
+                  <input
+                    type="password"
+                    value={settingsApiKey}
+                    onChange={(e) => setSettingsApiKey(e.target.value)}
+                    placeholder={settingsHasApiKey ? "Configured" : "Enter your DeepL API key"}
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div className="dialog-field">
+                  <label>Target Language</label>
+                  <select
+                    value={settingsTargetLang}
+                    onChange={(e) => setSettingsTargetLang(e.target.value)}
+                  >
+                    <option value="EN">English (EN)</option>
+                    <option value="DE">German (DE)</option>
+                    <option value="FR">French (FR)</option>
+                    <option value="ES">Spanish (ES)</option>
+                    <option value="IT">Italian (IT)</option>
+                    <option value="PT">Portuguese (PT)</option>
+                    <option value="NL">Dutch (NL)</option>
+                    <option value="PL">Polish (PL)</option>
+                    <option value="RU">Russian (RU)</option>
+                    <option value="JA">Japanese (JA)</option>
+                    <option value="ZH">Chinese (ZH)</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            <div className="dialog-actions">
+              <button className="dialog-btn dialog-btn-save" onClick={handleSaveSettings}>
+                Save
+              </button>
+              <button className="dialog-btn dialog-btn-cancel" onClick={closeSettings}>
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
