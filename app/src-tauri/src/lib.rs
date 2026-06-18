@@ -19,6 +19,7 @@ mod dto;
 mod translation;
 mod video_server;
 use dto::{CardDto, SubtitleDto, SubtitleSearchResultDto, TokenDto};
+use translation::{AppError, TranslationProvider, TranslationSettings};
 
 #[derive(Clone, serde::Serialize)]
 struct TranslationResult {
@@ -391,6 +392,40 @@ impl MiningSessionState {
         ))
     }
 
+    pub async fn translate_current_span(
+        &self,
+        settings: &TranslationSettings,
+    ) -> Result<String, AppError> {
+        let config = match &settings.provider {
+            TranslationProvider::DeepL(config) => config.clone(),
+            TranslationProvider::Disabled => return Err(AppError::translation_disabled()),
+        };
+
+        let span = self.translation_span().map_err(AppError::session_error)?;
+
+        translation::translate_with_deepl(&span, &config)
+            .await
+            .map_err(AppError::from)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn translate_current_span_at_url(
+        &self,
+        settings: &TranslationSettings,
+        url: &str,
+    ) -> Result<String, AppError> {
+        let config = match &settings.provider {
+            TranslationProvider::DeepL(config) => config.clone(),
+            TranslationProvider::Disabled => return Err(AppError::translation_disabled()),
+        };
+
+        let span = self.translation_span().map_err(AppError::session_error)?;
+
+        translation::translate_with_deepl_at_url(&span, &config, url)
+            .await
+            .map_err(AppError::from)
+    }
+
     pub fn search_subtitles(&self, query: &str) -> Result<Vec<SubtitleSearchResultDto>, String> {
         if query.is_empty() {
             return Ok(Vec::new());
@@ -658,6 +693,14 @@ fn search_subtitles(
 }
 
 #[tauri::command]
+async fn translate_current_span(
+    state: tauri::State<'_, MiningSessionState>,
+    settings: tauri::State<'_, TranslationSettings>,
+) -> Result<String, AppError> {
+    state.translate_current_span(&settings).await
+}
+
+#[tauri::command]
 fn get_video_server_port(state: tauri::State<'_, VideoServerState>) -> u16 {
     state.port
 }
@@ -668,6 +711,9 @@ pub fn run() {
         .manage(MiningSessionState::new())
         .manage(TranslationManager::new())
         .manage(default_video_server())
+        .manage(TranslationSettings {
+            provider: TranslationProvider::Disabled,
+        })
         .invoke_handler(tauri::generate_handler![
             start_session,
             start_embedded_session,
@@ -689,6 +735,7 @@ pub fn run() {
             get_video_server_port,
             search_subtitles,
             copy_translation_span,
+            translate_current_span,
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|err| {
@@ -706,6 +753,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use translation::DeepLConfig;
 
     fn fixture_path(name: &str) -> std::path::PathBuf {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1765,5 +1813,83 @@ mod tests {
         let results = state.search_subtitles("날씨").unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].subtitle_id, 2);
+    }
+
+    #[tokio::test]
+    async fn translate_current_span_disabled_provider() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+
+        let settings = TranslationSettings {
+            provider: TranslationProvider::Disabled,
+        };
+
+        let result = state.translate_current_span(&settings).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, "TRANSLATION_DISABLED");
+    }
+
+    #[tokio::test]
+    async fn translate_current_span_no_session() {
+        let state = MiningSessionState::new();
+        let settings = TranslationSettings {
+            provider: TranslationProvider::DeepL(DeepLConfig {
+                api_key: "dummy".into(),
+                source_lang: "KO".into(),
+                target_lang: "EN".into(),
+            }),
+        };
+
+        let result = state.translate_current_span(&settings).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code, "SESSION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn translate_current_span_with_mocked_deepl() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/translate")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"translations":[{"detected_source_language":"KO","text":"Hello everyone"}]}"#)
+            .create();
+
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+
+        let settings = TranslationSettings {
+            provider: TranslationProvider::DeepL(DeepLConfig {
+                api_key: "test-key".into(),
+                source_lang: "KO".into(),
+                target_lang: "EN".into(),
+            }),
+        };
+
+        let url = format!("{}/translate", server.url());
+        let result = state
+            .translate_current_span_at_url(&settings, &url)
+            .await;
+        assert_eq!(result.unwrap(), "Hello everyone");
+        mock.assert();
     }
 }

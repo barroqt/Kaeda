@@ -26,7 +26,7 @@ pub async fn translate_with_deepl(
     translate_with_deepl_at_url(text, config, DEEPL_API_URL).await
 }
 
-async fn translate_with_deepl_at_url(
+pub(crate) async fn translate_with_deepl_at_url(
     text: &str,
     config: &DeepLConfig,
     url: &str,

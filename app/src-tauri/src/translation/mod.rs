@@ -1,6 +1,62 @@
 pub mod deepl;
 
-pub use deepl::{DeepLConfig, TranslationError};
+pub use deepl::{DeepLConfig, TranslationError, translate_with_deepl};
+#[cfg(test)]
+pub(crate) use deepl::translate_with_deepl_at_url;
+
+#[derive(Debug, serde::Serialize)]
+pub struct AppError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl AppError {
+    pub fn translation_disabled() -> Self {
+        Self {
+            code: "TRANSLATION_DISABLED",
+            message: "Translation disabled".into(),
+        }
+    }
+
+    pub fn session_error(message: String) -> Self {
+        Self {
+            code: "SESSION_ERROR",
+            message,
+        }
+    }
+
+    fn deepl_unreachable(msg: String) -> Self {
+        Self {
+            code: "DEEPL_UNREACHABLE",
+            message: format!("Unable to reach DeepL: {msg}"),
+        }
+    }
+
+    fn deepl_rejected(msg: String) -> Self {
+        Self {
+            code: "DEEPL_REJECTED",
+            message: format!("DeepL rejected the request: {msg}"),
+        }
+    }
+
+    fn deepl_invalid_response() -> Self {
+        Self {
+            code: "DEEPL_INVALID_RESPONSE",
+            message: "DeepL returned an unexpected response".into(),
+        }
+    }
+}
+
+impl From<TranslationError> for AppError {
+    fn from(err: TranslationError) -> Self {
+        match err {
+            TranslationError::NotConfigured => Self::translation_disabled(),
+            TranslationError::HttpError(msg) => Self::deepl_unreachable(msg),
+            TranslationError::ApiError(msg) => Self::deepl_rejected(msg),
+            TranslationError::InvalidResponse => Self::deepl_invalid_response(),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum TranslationProvider {
