@@ -43,7 +43,9 @@ export default function App() {
   const [editSentence, setEditSentence] = useState("");
   const [editTarget, setEditTarget] = useState("");
   const [editExplanation, setEditExplanation] = useState("");
-  const [deckName, setDeckName] = useState("");
+  const [decks, setDecks] = useState([]);
+  const [activeDeckId, setActiveDeckId] = useState(null);
+  const deckName = decks.find(d => d.id === activeDeckId)?.name || "";
   const [videoPath, setVideoPath] = useState(null);
   const [sessionMode, setSessionMode] = useState(null);
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
@@ -78,6 +80,19 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY, String(dark));
   }, [dark]);
 
+  async function loadDecks() {
+    try {
+      const [deckList, activeDeck] = await Promise.all([
+        invoke("list_decks"),
+        invoke("get_active_deck"),
+      ]);
+      setDecks(deckList);
+      setActiveDeckId(activeDeck.id);
+    } catch {
+      /* no decks or store not initialized */
+    }
+  }
+
   const loadSubtitles = useCallback(async () => {
     try {
       const subs = await invoke("get_subtitles");
@@ -89,6 +104,7 @@ export default function App() {
     } catch {
       /* no active session */
     }
+    loadDecks();
   }, []);
 
   useEffect(() => {
@@ -229,8 +245,7 @@ export default function App() {
       setVideoPath(vidPath);
       setSessionMode("external");
       await loadSubtitles();
-      const name = await invoke("get_deck_name");
-      setDeckName(name);
+      await loadDecks();
     } catch (err) {
       setVideoPath(null);
       const msg =
@@ -261,8 +276,7 @@ export default function App() {
       setVideoPath(vidPath);
       setSessionMode("embedded");
       await loadSubtitles();
-      const name = await invoke("get_deck_name");
-      setDeckName(name);
+      await loadDecks();
     } catch (err) {
       const msg =
         typeof err === "object" && err !== null
@@ -361,6 +375,16 @@ export default function App() {
       showToast("Line marked as known", "success");
     } catch (err) {
       showToast(`Error: ${err}`, "error");
+    }
+  }
+
+  async function handleDeckChange(newId) {
+    try {
+      await invoke("set_active_deck", { deckId: newId });
+      setActiveDeckId(newId);
+      showToast(`Switched to ${decks.find(d => d.id === newId)?.name || "deck"}`, "success");
+    } catch (err) {
+      showToast(`Error changing deck: ${err}`, "error");
     }
   }
 
@@ -729,6 +753,20 @@ export default function App() {
       </main>
       {current && (
         <aside id="right-panel">
+          <div id="deck-selector">
+            <label htmlFor="deck-select">Deck</label>
+            <select
+              id="deck-select"
+              value={activeDeckId ?? ""}
+              onChange={(e) => handleDeckChange(Number(e.target.value))}
+            >
+              {decks.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <div id="right-panel-header">
             <h2>{viewingCards ? "Session Cards" : "New Card"}</h2>
             <div id="right-panel-header-actions">

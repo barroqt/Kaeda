@@ -801,6 +801,37 @@ body {
   transition: background 0.2s, border-color 0.2s, color 0.2s;
 }
 
+#deck-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#deck-selector label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+#deck-select {
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+#deck-select:focus {
+  border-color: var(--accent-border);
+}
+
 #right-panel-header {
   display: flex;
   justify-content: space-between;
