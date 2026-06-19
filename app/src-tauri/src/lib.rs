@@ -4,12 +4,10 @@ use std::sync::Mutex;
 
 use kaeda_core::deck::DeckId;
 use kaeda_core::dictionary;
-use kaeda_core::embedded_subtitles;
-use kaeda_core::ffmpeg;
 use kaeda_core::session::{Card, Session};
 use kaeda_core::store::{self, KnownLinesStore};
 use kaeda_core::subtitle::{
-    ExtractError, SubtitleEntry, SubtitleSource, build_translation_span, prepare_session_subtitles,
+    SubtitleEntry, SubtitleSource, build_translation_span, prepare_session_subtitles,
     srt_timestamp_to_ms,
 };
 use kaeda_core::tokenizer::KoreanTokenizer;
@@ -57,47 +55,6 @@ impl TranslationManager {
 pub struct SessionStartError {
     pub code: String,
     pub message: String,
-}
-
-fn map_extract_error(err: ExtractError) -> SessionStartError {
-    match &err {
-        ExtractError::EmbeddedExtractionFailed { source } => match source {
-            embedded_subtitles::SubtitleExtractError::NoSubtitleTracksFound => SessionStartError {
-                code: "NO_SUBTITLE_TRACKS".into(),
-                message: "No subtitles were found in this video. Please provide an external SRT."
-                    .into(),
-            },
-            embedded_subtitles::SubtitleExtractError::ImageBasedSubtitles => SessionStartError {
-                code: "IMAGE_BASED_SUBTITLES".into(),
-                message: "This video uses image-based subtitles, which Kaeda cannot read yet. \
-                          Please provide an external SRT."
-                    .into(),
-            },
-            _ => SessionStartError {
-                code: "EMBEDDED_EXTRACTION_FAILED".into(),
-                message: err.to_string(),
-            },
-        },
-        ExtractError::FfmpegFailed { source } => match source {
-            ffmpeg::FfmpegExtractError::FfmpegNotFound => SessionStartError {
-                code: "FFMPEG_NOT_FOUND".into(),
-                message: "Kaeda's built-in extractor could not read the subtitles, \
-                          and ffmpeg is not installed. \
-                          Install ffmpeg or provide an external SRT."
-                    .into(),
-            },
-            _ => SessionStartError {
-                code: "FFMPEG_FAILED".into(),
-                message: "Kaeda tried ffmpeg but failed to extract subtitles from this file. \
-                          Please provide an external SRT."
-                    .into(),
-            },
-        },
-        _ => SessionStartError {
-            code: "EXTRACTION_FAILED".into(),
-            message: err.to_string(),
-        },
-    }
 }
 
 struct MiningSessionInner {
@@ -337,10 +294,10 @@ impl MiningSessionState {
         Ok(session.cards().iter().cloned().map(CardDto::from).collect())
     }
 
-    pub fn export_session(&self, path: &Path) -> Result<(), String> {
+    pub fn export_session(&self, path: &Path, deck_id: DeckId) -> Result<(), String> {
         let inner = self.inner.lock().map_err(|e| e.to_string())?;
         let session = inner.session.as_ref().ok_or("no active session")?;
-        session.export_tsv(path).map_err(|e| e.to_string())
+        session.export_tsv(path, deck_id).map_err(|e| e.to_string())
     }
 
     pub fn edit_card(
@@ -763,8 +720,14 @@ fn get_session_cards(state: tauri::State<'_, MiningSessionState>) -> Result<Vec<
 }
 
 #[tauri::command]
-fn export_session(state: tauri::State<'_, MiningSessionState>, path: String) -> Result<(), String> {
-    state.export_session(Path::new(&path))
+fn export_session(
+    state: tauri::State<'_, MiningSessionState>,
+    deck_state: tauri::State<'_, DeckState>,
+    path: String,
+) -> Result<(), String> {
+    let deck_inner = deck_state.inner.lock().map_err(|e| e.to_string())?;
+    let deck_id = deck_inner.active_deck_id;
+    state.export_session(Path::new(&path), deck_id)
 }
 
 #[tauri::command]
@@ -1492,7 +1455,7 @@ mod tests {
         let state = MiningSessionState::new();
         let dir = std::env::temp_dir();
         let path = dir.join("kaeda_export_no_session.tsv");
-        let result = state.export_session(&path);
+        let result = state.export_session(&path, DeckId(1));
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "no active session");
     }
@@ -1521,7 +1484,7 @@ mod tests {
 
         let dir = std::env::temp_dir();
         let path = dir.join("kaeda_export_test.tsv");
-        state.export_session(&path).unwrap();
+        state.export_session(&path, DeckId(1)).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
         let expected =
@@ -1884,7 +1847,7 @@ mod tests {
 
         let dir = std::env::temp_dir();
         let path = dir.join("kaeda_edit_delete_export.tsv");
-        state.export_session(&path).unwrap();
+        state.export_session(&path, DeckId(1)).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(content, "keep\t안녕하세요 반갑습니다.\tkeep\n");

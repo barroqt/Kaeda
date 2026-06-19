@@ -76,11 +76,11 @@ impl Session {
         self.cards.len()
     }
 
-    pub fn export_tsv(&self, path: &Path) -> Result<(), CoreError> {
+    pub fn export_tsv(&self, path: &Path, deck_id: DeckId) -> Result<(), CoreError> {
         use std::io::Write;
 
         let mut file = std::fs::File::create(path).map_err(|e| CoreError::Export(e.to_string()))?;
-        for card in &self.cards {
+        for card in self.cards.iter().filter(|c| c.deck_id == deck_id) {
             let target = card.target.replace(['\t', '\n'], " ");
             let sentence = card.sentence.replace(['\t', '\n'], " ");
             let explanation = card.explanation.replace(['\t', '\n'], " ");
@@ -100,7 +100,7 @@ mod tests {
         let session = Session::new(DeckId(1), "file".to_string());
         let dir = std::env::temp_dir();
         let path = dir.join("kaeda_test_empty.tsv");
-        session.export_tsv(&path).unwrap();
+        session.export_tsv(&path, DeckId(1)).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.is_empty());
@@ -124,7 +124,7 @@ mod tests {
 
         let dir = std::env::temp_dir();
         let path = dir.join("kaeda_test_single.tsv");
-        session.export_tsv(&path).unwrap();
+        session.export_tsv(&path, DeckId(1)).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(content, "안녕\t안녕하세요\tHello\n");
@@ -158,7 +158,7 @@ mod tests {
 
         let dir = std::env::temp_dir();
         let path = dir.join("kaeda_test_multi.tsv");
-        session.export_tsv(&path).unwrap();
+        session.export_tsv(&path, DeckId(1)).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
         let expected = "책\t책을 읽습니다\tbook\n물\t물을 마십니다\twater\n";
@@ -183,7 +183,7 @@ mod tests {
 
         let dir = std::env::temp_dir();
         let path = dir.join("kaeda_test_sanitize.tsv");
-        session.export_tsv(&path).unwrap();
+        session.export_tsv(&path, DeckId(1)).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(content, "tar get\tline1 line2\texp lanation second\n");
@@ -469,7 +469,7 @@ mod tests {
 
         let dir = std::env::temp_dir();
         let path = dir.join("kaeda_test_after_delete.tsv");
-        session.export_tsv(&path).unwrap();
+        session.export_tsv(&path, DeckId(1)).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(content, "keep\tkeep\tkeep\n");

@@ -882,7 +882,7 @@ export default function App() {
                   ));
                 })()}
                 <button className="export-btn" onClick={handleExport}>
-                  Export TSV
+                  Export deck '{deckName}' as TSV
                 </button>
               </div>
             </>
