@@ -46,6 +46,12 @@ export default function App() {
   const [decks, setDecks] = useState([]);
   const [activeDeckId, setActiveDeckId] = useState(null);
   const deckName = decks.find(d => d.id === activeDeckId)?.name || "";
+  const [showDeckManager, setShowDeckManager] = useState(false);
+  const [newDeckName, setNewDeckName] = useState("");
+  const [renamingDeckId, setRenamingDeckId] = useState(null);
+  const [renamingDeckName, setRenamingDeckName] = useState("");
+  const [deletingDeckId, setDeletingDeckId] = useState(null);
+  const [deletingDeckName, setDeletingDeckName] = useState("");
   const [videoPath, setVideoPath] = useState(null);
   const [sessionMode, setSessionMode] = useState(null);
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
@@ -386,6 +392,66 @@ export default function App() {
     } catch (err) {
       showToast(`Error changing deck: ${err}`, "error");
     }
+  }
+
+  async function handleCreateDeck() {
+    const name = newDeckName.trim();
+    if (!name) return;
+    try {
+      await invoke("create_deck", { name });
+      setNewDeckName("");
+      setShowDeckManager(false);
+      await loadDecks();
+      showToast(`Created deck "${name}"`, "success");
+    } catch (err) {
+      showToast(`Failed to create deck: ${err}`, "error");
+    }
+  }
+
+  function handleStartRename(id, name) {
+    setRenamingDeckId(id);
+    setRenamingDeckName(name);
+  }
+
+  async function handleSubmitRename() {
+    const newName = renamingDeckName.trim();
+    if (!newName) return;
+    try {
+      await invoke("rename_deck", { deckId: renamingDeckId, newName });
+      setRenamingDeckId(null);
+      setRenamingDeckName("");
+      await loadDecks();
+      showToast(`Renamed deck to "${newName}"`, "success");
+    } catch (err) {
+      showToast(`Failed to rename deck: ${err}`, "error");
+    }
+  }
+
+  function handleCancelRename() {
+    setRenamingDeckId(null);
+    setRenamingDeckName("");
+  }
+
+  function handleStartDelete(id, name) {
+    setDeletingDeckId(id);
+    setDeletingDeckName(name);
+  }
+
+  async function handleConfirmDelete() {
+    try {
+      await invoke("delete_deck", { deckId: deletingDeckId });
+      setDeletingDeckId(null);
+      setDeletingDeckName("");
+      await loadDecks();
+      showToast("Deleted deck", "success");
+    } catch (err) {
+      showToast(`Failed to delete deck: ${err}`, "error");
+    }
+  }
+
+  function handleCancelDelete() {
+    setDeletingDeckId(null);
+    setDeletingDeckName("");
   }
 
   async function handleSkip() {
@@ -771,6 +837,11 @@ export default function App() {
             <h2>{viewingCards ? "Session Cards" : "New Card"}</h2>
             <div id="right-panel-header-actions">
               {deckName && <span id="deck-label">{deckName}</span>}
+              {viewingCards && (
+                <button className="manage-decks-btn" onClick={() => setShowDeckManager(true)}>
+                  Manage decks…
+                </button>
+              )}
               <button className="view-toggle" onClick={toggleViewCards}>
                 {viewingCards ? "Back to Mining" : "View Cards"}
               </button>
@@ -778,25 +849,43 @@ export default function App() {
           </div>
 
           {viewingCards ? (
-            <div id="session-cards-list">
-              {sessionCards.length === 0 ? (
-                <div className="empty-cards">No cards saved yet.</div>
-              ) : (
-                sessionCards.map((card, i) => (
-                  <div key={card.card_id} className="session-card-item" onClick={() => openEditDialog(card)}>
-                    <div className="session-card-index">#{i + 1}</div>
-                    <div className="session-card-target">{card.target}</div>
-                    <div className="session-card-sentence">{card.sentence}</div>
-                    <div className="session-card-explanation">
-                      {card.explanation || "\u2014"}
+            <>
+              <div id="cards-deck-selector">
+                <label htmlFor="cards-deck-select">Deck</label>
+                <select
+                  id="cards-deck-select"
+                  value={activeDeckId ?? ""}
+                  onChange={(e) => handleDeckChange(Number(e.target.value))}
+                >
+                  {decks.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div id="session-cards-list">
+                {(() => {
+                  const filtered = sessionCards.filter((c) => c.deck_id === activeDeckId);
+                  if (filtered.length === 0) {
+                    return <div className="empty-cards">No cards in this deck.</div>;
+                  }
+                  return filtered.map((card, i) => (
+                    <div key={card.card_id} className="session-card-item" onClick={() => openEditDialog(card)}>
+                      <div className="session-card-index">#{i + 1}</div>
+                      <div className="session-card-target">{card.target}</div>
+                      <div className="session-card-sentence">{card.sentence}</div>
+                      <div className="session-card-explanation">
+                        {card.explanation || "\u2014"}
+                      </div>
                     </div>
-                  </div>
-                ))
-              )}
-              <button className="export-btn" onClick={handleExport}>
-                Export TSV
-              </button>
-            </div>
+                  ));
+                })()}
+                <button className="export-btn" onClick={handleExport}>
+                  Export TSV
+                </button>
+              </div>
+            </>
           ) : (
             <>
               <div className="card-field">
@@ -1101,6 +1190,99 @@ export default function App() {
               </button>
               <button className="dialog-btn dialog-btn-cancel" onClick={closeSettings}>
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deletingDeckId != null && (
+        <div className="dialog-overlay" onClick={handleCancelDelete}>
+          <div className="dialog confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Delete Deck</h3>
+            <p>
+              Delete deck "{deletingDeckName}" and all its cards? This cannot be
+              undone.
+            </p>
+            <div className="dialog-actions">
+              <button className="dialog-btn dialog-btn-delete" onClick={handleConfirmDelete}>
+                Delete
+              </button>
+              <button className="dialog-btn dialog-btn-cancel" onClick={handleCancelDelete}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeckManager && (
+        <div className="dialog-overlay" onClick={() => setShowDeckManager(false)}>
+          <div className="dialog deck-manager-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Manage Decks</h3>
+
+            <div className="deck-manager-new">
+              <input
+                type="text"
+                value={newDeckName}
+                onChange={(e) => setNewDeckName(e.target.value)}
+                placeholder="New deck name"
+                onKeyDown={(e) => { if (e.key === "Enter") handleCreateDeck(); }}
+              />
+              <button className="deck-manager-new-btn" onClick={handleCreateDeck}>
+                New Deck
+              </button>
+            </div>
+
+            <div className="deck-manager-list">
+              {decks.map((d) => {
+                const cardCount = sessionCards.filter((c) => c.deck_id === d.id).length;
+                return (
+                  <div key={d.id} className="deck-manager-row">
+                    {renamingDeckId === d.id ? (
+                      <>
+                        <input
+                          type="text"
+                          value={renamingDeckName}
+                          onChange={(e) => setRenamingDeckName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSubmitRename();
+                            if (e.key === "Escape") handleCancelRename();
+                          }}
+                          autoFocus
+                        />
+                        <button className="deck-manager-icon-btn" onClick={handleSubmitRename} title="Save">
+                          &#10003;
+                        </button>
+                        <button className="deck-manager-icon-btn" onClick={handleCancelRename} title="Cancel">
+                          &#10005;
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="deck-manager-name">{d.name}</span>
+                        <span className="deck-manager-count">{cardCount} card{cardCount !== 1 ? "s" : ""}</span>
+                        <button className="deck-manager-icon-btn" onClick={() => handleStartRename(d.id, d.name)} title="Rename">
+                          &#9998;
+                        </button>
+                        <button
+                          className="deck-manager-icon-btn deck-manager-icon-delete"
+                          onClick={() => handleStartDelete(d.id, d.name)}
+                          title="Delete"
+                          disabled={decks.length <= 1}
+                        >
+                          &#10005;
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="dialog-actions">
+              <button className="dialog-btn dialog-btn-cancel" onClick={() => setShowDeckManager(false)}>
+                Close
               </button>
             </div>
           </div>
