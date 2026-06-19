@@ -116,6 +116,27 @@ impl AppError {
             message: "DeepL returned an unexpected response".into(),
         }
     }
+
+    pub fn deck_not_found(id: i64) -> Self {
+        Self {
+            code: "DECK_NOT_FOUND",
+            message: format!("Deck with id {id} not found"),
+        }
+    }
+
+    pub fn invalid_deck_name() -> Self {
+        Self {
+            code: "INVALID_DECK_NAME",
+            message: "Deck name must not be empty".into(),
+        }
+    }
+
+    pub fn deck_limit_reached() -> Self {
+        Self {
+            code: "DECK_LIMIT_REACHED",
+            message: "Cannot create more than 200 decks".into(),
+        }
+    }
 }
 
 impl From<TranslationError> for AppError {

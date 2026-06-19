@@ -18,6 +18,30 @@ pub struct DeckEntry {
     pub source_file: String,
 }
 
+fn migrate_card_decks(conn: &Connection) -> Result<(), CoreError> {
+    let schema: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='card_decks'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_default();
+    if schema.to_uppercase().contains("UNIQUE") {
+        conn.execute_batch(
+            "PRAGMA foreign_keys = OFF;
+             CREATE TABLE card_decks_migrated (
+                 id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                 name TEXT NOT NULL
+             );
+             INSERT INTO card_decks_migrated (id, name) SELECT id, name FROM card_decks;
+             DROP TABLE card_decks;
+             ALTER TABLE card_decks_migrated RENAME TO card_decks;
+             PRAGMA foreign_keys = ON;",
+        )?;
+    }
+    Ok(())
+}
+
 pub fn init_store(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS deck (
@@ -42,7 +66,7 @@ pub fn init_store(conn: &Connection) -> anyhow::Result<()> {
         );
         CREATE TABLE IF NOT EXISTS card_decks (
             id   INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE
+            name TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS session_cards (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,7 +80,13 @@ pub fn init_store(conn: &Connection) -> anyhow::Result<()> {
             subtitle_id     INTEGER NOT NULL
         );",
     )?;
+    migrate_card_decks(conn)?;
     Ok(())
+}
+
+pub fn deck_count(conn: &Connection) -> Result<i64, CoreError> {
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM card_decks", [], |row| row.get(0))?;
+    Ok(count)
 }
 
 /// Ensure at least one card deck exists. If the `card_decks` table is empty,

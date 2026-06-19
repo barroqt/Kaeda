@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use kaeda_core::deck::Deck;
 use kaeda_core::session::Card;
 use kaeda_core::subtitle::{SubtitleEntry, srt_timestamp_to_ms};
 use kaeda_core::tokenizer::Token;
@@ -82,6 +83,21 @@ impl From<Card> for CardDto {
             explanation: card.explanation,
             deck_id: card.deck_id.0,
             tags: card.tags,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckDto {
+    pub id: i64,
+    pub name: String,
+}
+
+impl From<Deck> for DeckDto {
+    fn from(deck: Deck) -> Self {
+        Self {
+            id: deck.id.0,
+            name: deck.name,
         }
     }
 }

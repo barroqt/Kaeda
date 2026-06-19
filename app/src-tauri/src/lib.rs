@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use kaeda_core::deck::{Deck, DeckId};
+use kaeda_core::deck::DeckId;
 use kaeda_core::dictionary;
 use kaeda_core::embedded_subtitles;
 use kaeda_core::ffmpeg;
@@ -21,7 +21,7 @@ use tracing::{debug, error, info, warn};
 mod dto;
 mod translation;
 mod video_server;
-use dto::{CardDto, SubtitleDto, SubtitleSearchResultDto, TokenDto};
+use dto::{CardDto, DeckDto, SubtitleDto, SubtitleSearchResultDto, TokenDto};
 use translation::{AppError, AppSettings, TranslationProvider, TranslationSettings};
 
 #[derive(Clone, serde::Serialize)]
@@ -599,37 +599,162 @@ fn save_card(
 }
 
 #[tauri::command]
-fn list_decks(deck_state: tauri::State<'_, DeckState>) -> Result<Vec<Deck>, String> {
-    let inner = deck_state.inner.lock().map_err(|e| e.to_string())?;
-    store::list_decks(&inner.store).map_err(|e| e.to_string())
+fn list_decks(deck_state: tauri::State<'_, DeckState>) -> Result<Vec<DeckDto>, AppError> {
+    let inner = deck_state
+        .inner
+        .lock()
+        .map_err(|e| AppError::session_error(e.to_string()))?;
+    store::list_decks(&inner.store)
+        .map(|decks| decks.into_iter().map(DeckDto::from).collect())
+        .map_err(|e| AppError::session_error(e.to_string()))
 }
 
 #[tauri::command]
-fn get_active_deck_id(deck_state: tauri::State<'_, DeckState>) -> Result<i64, String> {
-    let inner = deck_state.inner.lock().map_err(|e| e.to_string())?;
-    Ok(inner.active_deck_id.0)
+fn get_active_deck(deck_state: tauri::State<'_, DeckState>) -> Result<DeckDto, AppError> {
+    let inner = deck_state
+        .inner
+        .lock()
+        .map_err(|e| AppError::session_error(e.to_string()))?;
+    let deck = store::get_deck(&inner.store, inner.active_deck_id)
+        .map_err(|e| AppError::session_error(e.to_string()))?
+        .ok_or_else(|| AppError::deck_not_found(inner.active_deck_id.0))?;
+    Ok(DeckDto::from(deck))
 }
 
 #[tauri::command]
-fn set_active_deck_id(
+fn set_active_deck(
     app_handle: tauri::AppHandle,
     deck_state: tauri::State<'_, DeckState>,
     deck_id: i64,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let deck_id = DeckId(deck_id);
     {
-        let mut inner = deck_state.inner.lock().map_err(|e| e.to_string())?;
+        let mut inner = deck_state
+            .inner
+            .lock()
+            .map_err(|e| AppError::session_error(e.to_string()))?;
         store::get_deck(&inner.store, deck_id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("deck with id {} not found", deck_id.0))?;
+            .map_err(|e| AppError::session_error(e.to_string()))?
+            .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
         inner.active_deck_id = deck_id;
     }
     let app_data_dir = app_handle
         .path()
         .app_data_dir()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| AppError::session_error(e.to_string()))?;
     let config_path = app_data_dir.join("deck_config.json");
-    save_deck_config(&config_path, deck_id)
+    save_deck_config(&config_path, deck_id).map_err(|e| AppError::session_error(e))
+}
+
+#[tauri::command]
+fn create_deck(
+    app_handle: tauri::AppHandle,
+    deck_state: tauri::State<'_, DeckState>,
+    name: String,
+) -> Result<DeckDto, AppError> {
+    if name.trim().is_empty() {
+        return Err(AppError::invalid_deck_name());
+    }
+    let mut inner = deck_state
+        .inner
+        .lock()
+        .map_err(|e| AppError::session_error(e.to_string()))?;
+    let count =
+        store::deck_count(&inner.store).map_err(|e| AppError::session_error(e.to_string()))?;
+    if count >= 200 {
+        return Err(AppError::deck_limit_reached());
+    }
+    let deck_id = store::create_deck(&inner.store, &name)
+        .map_err(|e| AppError::session_error(e.to_string()))?;
+    let deck = store::get_deck(&inner.store, deck_id)
+        .map_err(|e| AppError::session_error(e.to_string()))?
+        .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
+    inner.active_deck_id = deck_id;
+    drop(inner);
+
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::session_error(e.to_string()))?;
+    let config_path = app_data_dir.join("deck_config.json");
+    save_deck_config(&config_path, deck_id).map_err(|e| AppError::session_error(e))?;
+
+    Ok(DeckDto::from(deck))
+}
+
+#[tauri::command]
+fn rename_deck(
+    deck_state: tauri::State<'_, DeckState>,
+    deck_id: i64,
+    new_name: String,
+) -> Result<DeckDto, AppError> {
+    if new_name.trim().is_empty() {
+        return Err(AppError::invalid_deck_name());
+    }
+    let deck_id = DeckId(deck_id);
+    let inner = deck_state
+        .inner
+        .lock()
+        .map_err(|e| AppError::session_error(e.to_string()))?;
+    store::rename_deck(&inner.store, deck_id, &new_name)
+        .map_err(|e| AppError::session_error(e.to_string()))?;
+    let deck = store::get_deck(&inner.store, deck_id)
+        .map_err(|e| AppError::session_error(e.to_string()))?
+        .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
+    Ok(DeckDto::from(deck))
+}
+
+#[tauri::command]
+fn delete_deck(
+    app_handle: tauri::AppHandle,
+    deck_state: tauri::State<'_, DeckState>,
+    deck_id: i64,
+) -> Result<(), AppError> {
+    let deck_id = DeckId(deck_id);
+    let mut needs_save = false;
+    {
+        let mut inner = deck_state
+            .inner
+            .lock()
+            .map_err(|e| AppError::session_error(e.to_string()))?;
+
+        // Validate deck exists
+        store::get_deck(&inner.store, deck_id)
+            .map_err(|e| AppError::session_error(e.to_string()))?
+            .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
+
+        let was_active = inner.active_deck_id == deck_id;
+
+        // Delete deck and its cards
+        store::delete_deck(&inner.store, deck_id)
+            .map_err(|e| AppError::session_error(e.to_string()))?;
+
+        // If we deleted the active deck, reassign to the first remaining
+        if was_active {
+            let remaining = store::list_decks(&inner.store)
+                .map_err(|e| AppError::session_error(e.to_string()))?;
+            if let Some(first) = remaining.first() {
+                inner.active_deck_id = first.id;
+                needs_save = true;
+            }
+        }
+    }
+
+    if needs_save {
+        let inner = deck_state
+            .inner
+            .lock()
+            .map_err(|e| AppError::session_error(e.to_string()))?;
+        let app_data_dir = app_handle
+            .path()
+            .app_data_dir()
+            .map_err(|e| AppError::session_error(e.to_string()))?;
+        let config_path = app_data_dir.join("deck_config.json");
+        save_deck_config(&config_path, inner.active_deck_id)
+            .map_err(|e| AppError::session_error(e))?;
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -951,8 +1076,11 @@ pub fn run() {
             get_translation_settings,
             update_translation_settings,
             list_decks,
-            get_active_deck_id,
-            set_active_deck_id,
+            get_active_deck,
+            set_active_deck,
+            create_deck,
+            rename_deck,
+            delete_deck,
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|err| {
@@ -2245,5 +2373,67 @@ mod tests {
 
         std::fs::remove_file(&db_path).unwrap();
         std::fs::remove_file(&config_path).unwrap();
+    }
+
+    #[test]
+    fn create_deck_increases_deck_count() {
+        let conn = Connection::open_in_memory().unwrap();
+        store::init_store(&conn).unwrap();
+        let _default = store::ensure_default_deck(&conn).unwrap();
+
+        let count_before = store::deck_count(&conn).unwrap();
+        store::create_deck(&conn, "New Deck").unwrap();
+        let count_after = store::deck_count(&conn).unwrap();
+        assert_eq!(count_after, count_before + 1);
+    }
+
+    #[test]
+    fn set_active_deck_persists_through_state() {
+        let conn = Connection::open_in_memory().unwrap();
+        store::init_store(&conn).unwrap();
+        let default_id = store::ensure_default_deck(&conn).unwrap();
+        let deck_id = store::create_deck(&conn, "Custom Deck").unwrap();
+
+        let state = DeckState {
+            inner: std::sync::Mutex::new(DeckStateInner {
+                active_deck_id: default_id,
+                store: conn,
+            }),
+        };
+
+        {
+            let mut inner = state.inner.lock().unwrap();
+            inner.active_deck_id = deck_id;
+        }
+
+        let inner = state.inner.lock().unwrap();
+        assert_eq!(inner.active_deck_id, deck_id);
+    }
+
+    #[test]
+    fn deleting_active_deck_reassigns_to_another_deck() {
+        let conn = Connection::open_in_memory().unwrap();
+        store::init_store(&conn).unwrap();
+        let default_id = store::ensure_default_deck(&conn).unwrap();
+        let extra_id = store::create_deck(&conn, "Extra Deck").unwrap();
+
+        let state = DeckState {
+            inner: std::sync::Mutex::new(DeckStateInner {
+                active_deck_id: extra_id,
+                store: conn,
+            }),
+        };
+
+        {
+            let mut inner = state.inner.lock().unwrap();
+            store::delete_deck(&inner.store, extra_id).unwrap();
+            let remaining = store::list_decks(&inner.store).unwrap();
+            assert_eq!(remaining.len(), 1);
+            inner.active_deck_id = remaining[0].id;
+        }
+
+        let inner = state.inner.lock().unwrap();
+        assert_eq!(inner.active_deck_id, default_id);
+        assert_ne!(inner.active_deck_id, extra_id);
     }
 }
