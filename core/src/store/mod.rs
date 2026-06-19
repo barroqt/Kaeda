@@ -6,6 +6,8 @@ use std::path::Path;
 use chrono::Utc;
 use rusqlite::Connection;
 
+use crate::deck::{Deck, DeckId};
+use crate::session::Card;
 use crate::subtitle::CoreError;
 
 pub struct DeckEntry {
@@ -37,7 +39,175 @@ pub fn init_store(conn: &Connection) -> anyhow::Result<()> {
             subtitle_id INTEGER NOT NULL,
             added_at    TEXT NOT NULL DEFAULT (datetime('now')),
             PRIMARY KEY (file_id, subtitle_id)
+        );
+        CREATE TABLE IF NOT EXISTS card_decks (
+            id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE
+        );
+        CREATE TABLE IF NOT EXISTS session_cards (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            deck_id         INTEGER NOT NULL REFERENCES card_decks(id) ON DELETE CASCADE,
+            session_card_id INTEGER NOT NULL,
+            sentence        TEXT NOT NULL,
+            target          TEXT NOT NULL,
+            explanation     TEXT NOT NULL DEFAULT '',
+            tags            TEXT NOT NULL DEFAULT '',
+            file_id         TEXT NOT NULL,
+            subtitle_id     INTEGER NOT NULL
         );",
+    )?;
+    Ok(())
+}
+
+/// Ensure at least one card deck exists. If the `card_decks` table is empty,
+/// inserts a default deck named `"Korean – General"`. Returns the ID of the
+/// first deck (existing or newly created).
+pub fn ensure_default_deck(conn: &Connection) -> Result<DeckId, CoreError> {
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM card_decks", [], |row| row.get(0))?;
+    if count == 0 {
+        conn.execute(
+            "INSERT INTO card_decks (name) VALUES ('Korean – General')",
+            [],
+        )?;
+    }
+    let id: i64 = conn.query_row("SELECT id FROM card_decks ORDER BY id LIMIT 1", [], |row| {
+        row.get(0)
+    })?;
+    Ok(DeckId(id))
+}
+
+pub fn create_deck(conn: &Connection, name: &str) -> Result<DeckId, CoreError> {
+    conn.execute(
+        "INSERT INTO card_decks (name) VALUES (?1)",
+        rusqlite::params![name],
+    )?;
+    let id: i64 = conn.last_insert_rowid();
+    Ok(DeckId(id))
+}
+
+pub fn list_decks(conn: &Connection) -> Result<Vec<Deck>, CoreError> {
+    let mut stmt = conn.prepare("SELECT id, name FROM card_decks ORDER BY id")?;
+    let decks = stmt
+        .query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let name: String = row.get(1)?;
+            Ok(Deck {
+                id: DeckId(id),
+                name,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(decks)
+}
+
+pub fn get_deck(conn: &Connection, id: DeckId) -> Result<Option<Deck>, CoreError> {
+    let mut stmt = conn.prepare("SELECT id, name FROM card_decks WHERE id = ?1")?;
+    let mut rows = stmt.query_map(rusqlite::params![id.0], |row| {
+        let id: i64 = row.get(0)?;
+        let name: String = row.get(1)?;
+        Ok(Deck {
+            id: DeckId(id),
+            name,
+        })
+    })?;
+    match rows.next() {
+        Some(Ok(deck)) => Ok(Some(deck)),
+        Some(Err(e)) => Err(CoreError::Database(e)),
+        None => Ok(None),
+    }
+}
+
+pub fn rename_deck(conn: &Connection, id: DeckId, name: &str) -> Result<(), CoreError> {
+    let affected = conn.execute(
+        "UPDATE card_decks SET name = ?1 WHERE id = ?2",
+        rusqlite::params![name, id.0],
+    )?;
+    if affected == 0 {
+        return Err(CoreError::DeckNotFound(id));
+    }
+    Ok(())
+}
+
+pub fn delete_deck(conn: &Connection, id: DeckId) -> Result<(), CoreError> {
+    conn.execute(
+        "DELETE FROM session_cards WHERE deck_id = ?1",
+        rusqlite::params![id.0],
+    )?;
+    conn.execute(
+        "DELETE FROM card_decks WHERE id = ?1",
+        rusqlite::params![id.0],
+    )?;
+    Ok(())
+}
+
+pub fn save_card_to_store(conn: &Connection, card: &Card) -> Result<(), CoreError> {
+    conn.execute(
+        "INSERT INTO session_cards (deck_id, session_card_id, sentence, target, explanation, tags, file_id, subtitle_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![
+            card.deck_id.0,
+            card.card_id,
+            card.sentence,
+            card.target,
+            card.explanation,
+            card.tags.join(","),
+            card.file_id,
+            card.subtitle_id,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn list_cards_by_deck(conn: &Connection, deck_id: DeckId) -> Result<Vec<Card>, CoreError> {
+    let mut stmt = conn.prepare(
+        "SELECT session_card_id, sentence, target, explanation, tags, file_id, subtitle_id
+         FROM session_cards WHERE deck_id = ?1 ORDER BY session_card_id",
+    )?;
+    let cards = stmt
+        .query_map(rusqlite::params![deck_id.0], |row| {
+            let session_card_id: u32 = row.get(0)?;
+            let sentence: String = row.get(1)?;
+            let target: String = row.get(2)?;
+            let explanation: String = row.get(3)?;
+            let tags_str: String = row.get(4)?;
+            let file_id: String = row.get(5)?;
+            let subtitle_id: u32 = row.get(6)?;
+            let tags: Vec<String> = if tags_str.is_empty() {
+                Vec::new()
+            } else {
+                tags_str.split(',').map(|s| s.to_string()).collect()
+            };
+            Ok(Card {
+                card_id: session_card_id,
+                deck_id,
+                sentence,
+                target,
+                explanation,
+                tags,
+                file_id,
+                subtitle_id,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(cards)
+}
+
+pub fn get_or_create_deck_by_name(conn: &Connection, name: &str) -> Result<DeckId, CoreError> {
+    let mut stmt = conn.prepare("SELECT id FROM card_decks WHERE name = ?1")?;
+    let existing: Option<i64> = stmt
+        .query_map(rusqlite::params![name], |row| row.get(0))?
+        .next()
+        .transpose()?;
+    match existing {
+        Some(id) => Ok(DeckId(id)),
+        None => create_deck(conn, name),
+    }
+}
+
+pub fn delete_session_card(conn: &Connection, card_id: u32) -> Result<(), CoreError> {
+    conn.execute(
+        "DELETE FROM session_cards WHERE session_card_id = ?1",
+        rusqlite::params![card_id],
     )?;
     Ok(())
 }
@@ -484,5 +654,234 @@ mod tests {
         }
 
         std::fs::remove_file(&path).unwrap();
+    }
+
+    // -----------------------------------------------------------------------
+    // Deck CRUD
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ensure_default_deck_creates_general_deck_when_empty() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let id = ensure_default_deck(&conn).unwrap();
+        assert_eq!(id, DeckId(1));
+        let decks = list_decks(&conn).unwrap();
+        assert_eq!(decks.len(), 1);
+        assert_eq!(decks[0].name, "Korean – General");
+    }
+
+    #[test]
+    fn ensure_default_deck_returns_existing_deck() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let first = ensure_default_deck(&conn).unwrap();
+        let second = ensure_default_deck(&conn).unwrap();
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn create_deck_returns_id_and_persists() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let id = create_deck(&conn, "My Deck").unwrap();
+        assert_eq!(id, DeckId(1));
+        let deck = get_deck(&conn, id).unwrap().expect("deck should exist");
+        assert_eq!(deck.name, "My Deck");
+        assert_eq!(deck.id, id);
+    }
+
+    #[test]
+    fn create_deck_multiple_decks_have_unique_ids() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let id1 = create_deck(&conn, "Deck A").unwrap();
+        let id2 = create_deck(&conn, "Deck B").unwrap();
+        assert_ne!(id1, id2);
+        let decks = list_decks(&conn).unwrap();
+        assert_eq!(decks.len(), 2);
+    }
+
+    #[test]
+    fn list_decks_returns_all_decks() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let _ = create_deck(&conn, "First").unwrap();
+        let _ = create_deck(&conn, "Second").unwrap();
+        let decks = list_decks(&conn).unwrap();
+        assert_eq!(decks.len(), 2);
+        assert_eq!(decks[0].name, "First");
+        assert_eq!(decks[1].name, "Second");
+    }
+
+    #[test]
+    fn get_deck_returns_none_for_missing_id() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let result = get_deck(&conn, DeckId(99)).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn rename_deck_updates_name_but_not_id() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let id = create_deck(&conn, "Original").unwrap();
+        rename_deck(&conn, id, "Renamed").unwrap();
+        let deck = get_deck(&conn, id).unwrap().unwrap();
+        assert_eq!(deck.id, id);
+        assert_eq!(deck.name, "Renamed");
+    }
+
+    #[test]
+    fn rename_deck_returns_error_for_missing_deck() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let result = rename_deck(&conn, DeckId(99), "Nope");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), CoreError::DeckNotFound(_)));
+    }
+
+    #[test]
+    fn delete_deck_removes_deck_and_its_cards() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let deck_id = create_deck(&conn, "To Delete").unwrap();
+
+        let card = Card {
+            card_id: 1,
+            deck_id,
+            sentence: "test sentence".into(),
+            target: "test".into(),
+            explanation: "test expl".into(),
+            tags: vec![],
+            file_id: "f".into(),
+            subtitle_id: 1,
+        };
+        save_card_to_store(&conn, &card).unwrap();
+
+        let cards = list_cards_by_deck(&conn, deck_id).unwrap();
+        assert_eq!(cards.len(), 1);
+
+        delete_deck(&conn, deck_id).unwrap();
+
+        assert!(get_deck(&conn, deck_id).unwrap().is_none());
+        let cards = list_cards_by_deck(&conn, deck_id).unwrap();
+        assert!(cards.is_empty(), "cards should be deleted with deck");
+    }
+
+    #[test]
+    fn save_card_to_store_persists_card_fields() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let deck_id = create_deck(&conn, "Test Deck").unwrap();
+
+        let card = Card {
+            card_id: 1,
+            deck_id,
+            sentence: "안녕하세요".into(),
+            target: "안녕".into(),
+            explanation: "Hello".into(),
+            tags: vec!["korean".into(), "greeting".into()],
+            file_id: "video-1".into(),
+            subtitle_id: 5,
+        };
+        save_card_to_store(&conn, &card).unwrap();
+
+        let cards = list_cards_by_deck(&conn, deck_id).unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].sentence, "안녕하세요");
+        assert_eq!(cards[0].target, "안녕");
+        assert_eq!(cards[0].explanation, "Hello");
+        assert_eq!(cards[0].tags, vec!["korean", "greeting"]);
+        assert_eq!(cards[0].file_id, "video-1");
+        assert_eq!(cards[0].subtitle_id, 5);
+    }
+
+    #[test]
+    fn list_cards_by_deck_only_returns_cards_for_that_deck() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let d1 = create_deck(&conn, "Deck 1").unwrap();
+        let d2 = create_deck(&conn, "Deck 2").unwrap();
+
+        save_card_to_store(
+            &conn,
+            &Card {
+                card_id: 1,
+                deck_id: d1,
+                sentence: "s1".into(),
+                target: "t1".into(),
+                explanation: "e1".into(),
+                tags: vec![],
+                file_id: "f".into(),
+                subtitle_id: 1,
+            },
+        )
+        .unwrap();
+        save_card_to_store(
+            &conn,
+            &Card {
+                card_id: 1,
+                deck_id: d2,
+                sentence: "s2".into(),
+                target: "t2".into(),
+                explanation: "e2".into(),
+                tags: vec![],
+                file_id: "f".into(),
+                subtitle_id: 2,
+            },
+        )
+        .unwrap();
+
+        let cards_d1 = list_cards_by_deck(&conn, d1).unwrap();
+        assert_eq!(cards_d1.len(), 1);
+        assert_eq!(cards_d1[0].target, "t1");
+
+        let cards_d2 = list_cards_by_deck(&conn, d2).unwrap();
+        assert_eq!(cards_d2.len(), 1);
+        assert_eq!(cards_d2[0].target, "t2");
+    }
+
+    #[test]
+    fn delete_session_card_removes_single_card() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_store(&conn).unwrap();
+        let deck_id = create_deck(&conn, "Test").unwrap();
+
+        save_card_to_store(
+            &conn,
+            &Card {
+                card_id: 1,
+                deck_id,
+                sentence: "keep".into(),
+                target: "keep".into(),
+                explanation: "".into(),
+                tags: vec![],
+                file_id: "f".into(),
+                subtitle_id: 1,
+            },
+        )
+        .unwrap();
+        save_card_to_store(
+            &conn,
+            &Card {
+                card_id: 2,
+                deck_id,
+                sentence: "delete".into(),
+                target: "delete".into(),
+                explanation: "".into(),
+                tags: vec![],
+                file_id: "f".into(),
+                subtitle_id: 2,
+            },
+        )
+        .unwrap();
+
+        delete_session_card(&conn, 2).unwrap();
+
+        let cards = list_cards_by_deck(&conn, deck_id).unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].target, "keep");
     }
 }

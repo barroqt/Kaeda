@@ -45,7 +45,7 @@ pub struct CardDto {
     pub sentence: String,
     pub target: String,
     pub explanation: String,
-    pub deck: String,
+    pub deck_id: i64,
     pub tags: Vec<String>,
 }
 
@@ -80,7 +80,7 @@ impl From<Card> for CardDto {
             sentence: card.sentence,
             target: card.target,
             explanation: card.explanation,
-            deck: card.deck,
+            deck_id: card.deck_id.0,
             tags: card.tags,
         }
     }
@@ -89,6 +89,7 @@ impl From<Card> for CardDto {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kaeda_core::deck::DeckId;
 
     #[test]
     fn subtitle_entry_to_dto_maps_all_fields() {
@@ -116,7 +117,7 @@ mod tests {
             sentence: "안녕하세요".into(),
             target: "안녕".into(),
             explanation: "Hello".into(),
-            deck: "my-deck".into(),
+            deck_id: DeckId(42),
             tags: vec!["korean".into()],
             file_id: "video-1".into(),
             subtitle_id: 1,
@@ -127,7 +128,7 @@ mod tests {
         assert_eq!(dto.sentence, "안녕하세요");
         assert_eq!(dto.target, "안녕");
         assert_eq!(dto.explanation, "Hello");
-        assert_eq!(dto.deck, "my-deck");
+        assert_eq!(dto.deck_id, 42);
         assert_eq!(dto.tags, vec!["korean"]);
     }
 

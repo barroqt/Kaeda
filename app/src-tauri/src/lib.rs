@@ -2,16 +2,18 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use kaeda_core::deck::DeckId;
 use kaeda_core::dictionary;
 use kaeda_core::embedded_subtitles;
 use kaeda_core::ffmpeg;
 use kaeda_core::session::{Card, Session};
-use kaeda_core::store::KnownLinesStore;
+use kaeda_core::store::{self, KnownLinesStore};
 use kaeda_core::subtitle::{
     ExtractError, SubtitleEntry, SubtitleSource, build_translation_span, prepare_session_subtitles,
     srt_timestamp_to_ms,
 };
 use kaeda_core::tokenizer::KoreanTokenizer;
+use rusqlite::Connection;
 use tauri::Emitter;
 use tauri::Manager;
 use tracing::{debug, error, info, warn};
@@ -107,6 +109,7 @@ struct MiningSessionInner {
     known_ids: HashSet<i64>,
     source_file_id: String,
     video_path: String,
+    card_store: Option<Connection>,
 }
 
 pub struct MiningSessionState {
@@ -131,6 +134,7 @@ impl MiningSessionState {
                 known_ids: HashSet::new(),
                 source_file_id: String::new(),
                 video_path: String::new(),
+                card_store: None,
             }),
         }
     }
@@ -140,10 +144,11 @@ impl MiningSessionState {
     fn init_with_subtitles(
         &self,
         subtitles: Vec<SubtitleEntry>,
-        deck_name: String,
+        deck_id: DeckId,
         source_file_id: String,
         known_store: KnownLinesStore,
         video_path: String,
+        card_store: Connection,
     ) -> Result<(), String> {
         if subtitles.is_empty() {
             return Err("no subtitles found in file".to_string());
@@ -161,7 +166,7 @@ impl MiningSessionState {
         let known_ids = known_store
             .known_ids(&source_file_id)
             .map_err(|e| e.to_string())?;
-        let session = Session::new(deck_name, source_file_id.clone());
+        let session = Session::new(deck_id, source_file_id.clone());
         let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
         inner.session = Some(session);
         inner.subtitles = subtitles;
@@ -171,6 +176,7 @@ impl MiningSessionState {
         inner.known_ids = known_ids;
         inner.source_file_id = source_file_id;
         inner.video_path = video_path;
+        inner.card_store = Some(card_store);
         Ok(())
     }
 
@@ -187,12 +193,17 @@ impl MiningSessionState {
             video_path: Some(PathBuf::from(&video_path)),
         };
         let subtitles = prepare_session_subtitles(source).map_err(|e| e.to_string())?;
+        let card_store = Connection::open_in_memory().map_err(|e| e.to_string())?;
+        store::init_store(&card_store).map_err(|e| e.to_string())?;
+        let deck_id = store::get_or_create_deck_by_name(&card_store, &deck_name)
+            .map_err(|e| e.to_string())?;
         self.init_with_subtitles(
             subtitles,
-            deck_name,
+            deck_id,
             source_file_id,
             known_store,
             video_path,
+            card_store,
         )
     }
 
@@ -207,12 +218,17 @@ impl MiningSessionState {
             video_path: PathBuf::from(&video_path),
         };
         let subtitles = prepare_session_subtitles(source).map_err(|e| e.to_string())?;
+        let card_store = Connection::open_in_memory().map_err(|e| e.to_string())?;
+        store::init_store(&card_store).map_err(|e| e.to_string())?;
+        let deck_id = store::get_or_create_deck_by_name(&card_store, &deck_name)
+            .map_err(|e| e.to_string())?;
         self.init_with_subtitles(
             subtitles,
-            deck_name,
+            deck_id,
             source_file_id,
             known_store,
             video_path,
+            card_store,
         )
     }
 
@@ -298,12 +314,15 @@ impl MiningSessionState {
             sentence,
             target,
             explanation,
-            deck: session.deck_name.clone(),
+            deck_id: session.deck_id,
             tags: vec![],
             file_id: session.source_file_id.clone(),
             subtitle_id,
         };
         let saved = session.add_card(card);
+        if let Some(ref card_store) = inner.card_store {
+            let _ = store::save_card_to_store(card_store, &saved);
+        }
         Ok(CardDto::from(saved))
     }
 
@@ -358,7 +377,11 @@ impl MiningSessionState {
     pub fn deck_name(&self) -> Result<String, String> {
         let inner = self.inner.lock().map_err(|e| e.to_string())?;
         let session = inner.session.as_ref().ok_or("no active session")?;
-        Ok(session.deck_name.clone())
+        let store = inner.card_store.as_ref().ok_or("no card store")?;
+        let deck = store::get_deck(store, session.deck_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("deck not found")?;
+        Ok(deck.name)
     }
 
     pub fn is_line_known(&self, subtitle_id: u32) -> Result<bool, String> {
@@ -520,18 +543,8 @@ fn start_embedded_session(
         message: e.to_string(),
     })?;
 
-    let source = SubtitleSource::Embedded {
-        video_path: PathBuf::from(&video_path),
-    };
-    let subtitles = prepare_session_subtitles(source).map_err(map_extract_error)?;
     state
-        .init_with_subtitles(
-            subtitles,
-            deck_name,
-            source_file_id,
-            known_store,
-            video_path,
-        )
+        .start_embedded_session(deck_name, source_file_id, known_store, video_path)
         .map_err(|e| SessionStartError {
             code: "INIT_FAILED".into(),
             message: e,
@@ -1139,7 +1152,7 @@ mod tests {
         assert_eq!(card.sentence, "안녕하세요 반갑습니다.");
         assert_eq!(card.target, "안녕");
         assert_eq!(card.explanation, "Hello");
-        assert_eq!(card.deck, "test-deck");
+        assert_eq!(card.deck_id, 1);
 
         let inner = state.inner.lock().unwrap();
         let cards = inner.session.as_ref().unwrap().cards();
@@ -1232,7 +1245,7 @@ mod tests {
         assert_eq!(cards[0].target, "안녕");
         assert_eq!(cards[0].explanation, "Hello");
         assert_eq!(cards[0].sentence, "안녕하세요 반갑습니다.");
-        assert_eq!(cards[0].deck, "test-deck");
+        assert_eq!(cards[0].deck_id, 1);
     }
 
     #[test]

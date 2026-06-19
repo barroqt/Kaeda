@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+use crate::deck::DeckId;
 use crate::embedded_subtitles;
 use crate::ffmpeg;
 use crate::util::strip_html_tags;
@@ -27,6 +28,8 @@ pub enum CoreError {
     Export(String),
     #[error("card with id {0} not found")]
     CardNotFound(u32),
+    #[error("deck with id {0} not found")]
+    DeckNotFound(DeckId),
 }
 
 #[derive(Debug, Clone)]
