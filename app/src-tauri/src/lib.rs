@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use kaeda_core::deck::DeckId;
+use kaeda_core::deck::{Deck, DeckId};
 use kaeda_core::dictionary;
 use kaeda_core::embedded_subtitles;
 use kaeda_core::ffmpeg;
@@ -294,7 +294,12 @@ impl MiningSessionState {
         Ok(inner.current_index)
     }
 
-    pub fn save_card(&self, target: String, explanation: String) -> Result<CardDto, String> {
+    pub fn save_card(
+        &self,
+        deck_id: DeckId,
+        target: String,
+        explanation: String,
+    ) -> Result<CardDto, String> {
         let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
         if inner.session.is_none() {
             return Err("no active session".to_string());
@@ -314,7 +319,7 @@ impl MiningSessionState {
             sentence,
             target,
             explanation,
-            deck_id: session.deck_id,
+            deck_id,
             tags: vec![],
             file_id: session.source_file_id.clone(),
             subtitle_id,
@@ -582,10 +587,49 @@ fn set_current_index(
 #[tauri::command]
 fn save_card(
     state: tauri::State<'_, MiningSessionState>,
+    deck_state: tauri::State<'_, DeckState>,
     target: String,
     explanation: String,
 ) -> Result<CardDto, String> {
-    state.save_card(target, explanation)
+    let active_deck_id = {
+        let inner = deck_state.inner.lock().map_err(|e| e.to_string())?;
+        inner.active_deck_id
+    };
+    state.save_card(active_deck_id, target, explanation)
+}
+
+#[tauri::command]
+fn list_decks(deck_state: tauri::State<'_, DeckState>) -> Result<Vec<Deck>, String> {
+    let inner = deck_state.inner.lock().map_err(|e| e.to_string())?;
+    store::list_decks(&inner.store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_active_deck_id(deck_state: tauri::State<'_, DeckState>) -> Result<i64, String> {
+    let inner = deck_state.inner.lock().map_err(|e| e.to_string())?;
+    Ok(inner.active_deck_id.0)
+}
+
+#[tauri::command]
+fn set_active_deck_id(
+    app_handle: tauri::AppHandle,
+    deck_state: tauri::State<'_, DeckState>,
+    deck_id: i64,
+) -> Result<(), String> {
+    let deck_id = DeckId(deck_id);
+    {
+        let mut inner = deck_state.inner.lock().map_err(|e| e.to_string())?;
+        store::get_deck(&inner.store, deck_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("deck with id {} not found", deck_id.0))?;
+        inner.active_deck_id = deck_id;
+    }
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    let config_path = app_data_dir.join("deck_config.json");
+    save_deck_config(&config_path, deck_id)
 }
 
 #[tauri::command]
@@ -796,6 +840,38 @@ pub struct AppSettingsState {
     pub inner: std::sync::Mutex<AppSettings>,
 }
 
+pub struct DeckStateInner {
+    pub active_deck_id: DeckId,
+    pub store: Connection,
+}
+
+pub struct DeckState {
+    pub inner: std::sync::Mutex<DeckStateInner>,
+}
+
+fn load_deck_config(path: &std::path::Path) -> Option<DeckId> {
+    let content = std::fs::read_to_string(path).ok()?;
+    #[derive(serde::Deserialize)]
+    struct Config {
+        active_deck_id: i64,
+    }
+    serde_json::from_str::<Config>(&content)
+        .ok()
+        .map(|c| DeckId(c.active_deck_id))
+}
+
+fn save_deck_config(path: &std::path::Path, active_deck_id: DeckId) -> Result<(), String> {
+    #[derive(serde::Serialize)]
+    struct Config {
+        active_deck_id: i64,
+    }
+    let content = serde_json::to_string_pretty(&Config {
+        active_deck_id: active_deck_id.0,
+    })
+    .map_err(|e| e.to_string())?;
+    std::fs::write(path, content).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn get_video_server_port(state: tauri::State<'_, VideoServerState>) -> u16 {
     state.port
@@ -813,6 +889,8 @@ pub fn run() {
                 .app_data_dir()
                 .expect("failed to get app data dir");
             std::fs::create_dir_all(&app_data_dir).expect("failed to create app data dir");
+
+            // Translation settings
             let config_path = app_data_dir.join("config.json");
             let settings = translation::load_settings(&config_path);
             info!(
@@ -824,6 +902,28 @@ pub fn run() {
             app.manage(AppSettingsState {
                 inner: std::sync::Mutex::new(settings),
             });
+
+            // Deck store
+            let deck_store_path = app_data_dir.join("decks.db");
+            let deck_conn = Connection::open(&deck_store_path).expect("failed to open deck store");
+            store::init_store(&deck_conn).expect("failed to init deck store");
+            let default_deck_id =
+                store::ensure_default_deck(&deck_conn).expect("failed to ensure default deck");
+
+            let deck_config_path = app_data_dir.join("deck_config.json");
+            let active_deck_id = load_deck_config(&deck_config_path)
+                .filter(|id| store::get_deck(&deck_conn, *id).ok().flatten().is_some())
+                .unwrap_or(default_deck_id);
+
+            info!("active deck: id={}", active_deck_id.0);
+
+            app.manage(DeckState {
+                inner: std::sync::Mutex::new(DeckStateInner {
+                    active_deck_id,
+                    store: deck_conn,
+                }),
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -850,6 +950,9 @@ pub fn run() {
             translate_current_span,
             get_translation_settings,
             update_translation_settings,
+            list_decks,
+            get_active_deck_id,
+            set_active_deck_id,
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|err| {
@@ -1148,7 +1251,9 @@ mod tests {
             )
             .unwrap();
 
-        let card = state.save_card("안녕".into(), "Hello".into()).unwrap();
+        let card = state
+            .save_card(DeckId(1), "안녕".into(), "Hello".into())
+            .unwrap();
         assert_eq!(card.sentence, "안녕하세요 반갑습니다.");
         assert_eq!(card.target, "안녕");
         assert_eq!(card.explanation, "Hello");
@@ -1165,7 +1270,7 @@ mod tests {
     #[test]
     fn save_card_returns_error_without_session() {
         let state = MiningSessionState::new();
-        let result = state.save_card("test".into(), "explanation".into());
+        let result = state.save_card(DeckId(1), "test".into(), "explanation".into());
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "no active session");
     }
@@ -1184,9 +1289,13 @@ mod tests {
             )
             .unwrap();
 
-        state.save_card("target1".into(), "exp1".into()).unwrap();
+        state
+            .save_card(DeckId(1), "target1".into(), "exp1".into())
+            .unwrap();
         state.set_current_index(1).unwrap();
-        state.save_card("target2".into(), "exp2".into()).unwrap();
+        state
+            .save_card(DeckId(1), "target2".into(), "exp2".into())
+            .unwrap();
 
         let inner = state.inner.lock().unwrap();
         assert_eq!(inner.session.as_ref().unwrap().card_count(), 2);
@@ -1238,7 +1347,9 @@ mod tests {
             )
             .unwrap();
 
-        state.save_card("안녕".into(), "Hello".into()).unwrap();
+        state
+            .save_card(DeckId(1), "안녕".into(), "Hello".into())
+            .unwrap();
 
         let cards = state.session_cards().unwrap();
         assert_eq!(cards.len(), 1);
@@ -1272,9 +1383,13 @@ mod tests {
             )
             .unwrap();
 
-        state.save_card("안녕".into(), "Hello".into()).unwrap();
+        state
+            .save_card(DeckId(1), "안녕".into(), "Hello".into())
+            .unwrap();
         state.set_current_index(1).unwrap();
-        state.save_card("날씨".into(), "Weather".into()).unwrap();
+        state
+            .save_card(DeckId(1), "날씨".into(), "Weather".into())
+            .unwrap();
 
         let dir = std::env::temp_dir();
         let path = dir.join("kaeda_export_test.tsv");
@@ -1302,11 +1417,17 @@ mod tests {
             )
             .unwrap();
 
-        state.save_card("target1".into(), "exp1".into()).unwrap();
+        state
+            .save_card(DeckId(1), "target1".into(), "exp1".into())
+            .unwrap();
         state.set_current_index(1).unwrap();
-        state.save_card("target2".into(), "exp2".into()).unwrap();
+        state
+            .save_card(DeckId(1), "target2".into(), "exp2".into())
+            .unwrap();
         state.set_current_index(2).unwrap();
-        state.save_card("target3".into(), "exp3".into()).unwrap();
+        state
+            .save_card(DeckId(1), "target3".into(), "exp3".into())
+            .unwrap();
 
         let cards = state.session_cards().unwrap();
         assert_eq!(cards.len(), 3);
@@ -1477,7 +1598,9 @@ mod tests {
             )
             .unwrap();
 
-        let saved = state.save_card("target1".into(), "exp1".into()).unwrap();
+        let saved = state
+            .save_card(DeckId(1), "target1".into(), "exp1".into())
+            .unwrap();
         let card_id = saved.card_id;
 
         let updated = state
@@ -1539,7 +1662,9 @@ mod tests {
             )
             .unwrap();
 
-        let saved = state.save_card("target1".into(), "exp1".into()).unwrap();
+        let saved = state
+            .save_card(DeckId(1), "target1".into(), "exp1".into())
+            .unwrap();
         let card_id = saved.card_id;
 
         assert_eq!(state.session_cards().unwrap().len(), 1);
@@ -1588,9 +1713,15 @@ mod tests {
             )
             .unwrap();
 
-        state.save_card("keep".into(), "keep".into()).unwrap();
-        let card2 = state.save_card("delete".into(), "delete".into()).unwrap();
-        state.save_card("keep2".into(), "keep2".into()).unwrap();
+        state
+            .save_card(DeckId(1), "keep".into(), "keep".into())
+            .unwrap();
+        let card2 = state
+            .save_card(DeckId(1), "delete".into(), "delete".into())
+            .unwrap();
+        state
+            .save_card(DeckId(1), "keep2".into(), "keep2".into())
+            .unwrap();
 
         state.delete_card(card2.card_id).unwrap();
 
@@ -1615,8 +1746,12 @@ mod tests {
             )
             .unwrap();
 
-        state.save_card("keep".into(), "keep".into()).unwrap();
-        let to_delete = state.save_card("delete".into(), "delete".into()).unwrap();
+        state
+            .save_card(DeckId(1), "keep".into(), "keep".into())
+            .unwrap();
+        let to_delete = state
+            .save_card(DeckId(1), "delete".into(), "delete".into())
+            .unwrap();
         state.delete_card(to_delete.card_id).unwrap();
 
         let dir = std::env::temp_dir();
@@ -2005,5 +2140,110 @@ mod tests {
         let result = state.translate_current_span_at_url(&settings, &url).await;
         assert_eq!(result.unwrap(), "Hello everyone");
         mock.assert();
+    }
+
+    // -----------------------------------------------------------------------
+    // Active Deck / DeckState tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn save_card_uses_provided_deck_id() {
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "test-deck".into(),
+                "video-1".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+
+        let card = state
+            .save_card(DeckId(42), "안녕".into(), "Hello".into())
+            .unwrap();
+        assert_eq!(card.deck_id, 42);
+    }
+
+    #[test]
+    fn fresh_deck_store_creates_default_deck() {
+        let dir = std::env::temp_dir();
+        let db_path = dir.join("kaeda_test_fresh_decks.db");
+        let config_path = dir.join("kaeda_test_fresh_deck_config.json");
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(&config_path);
+
+        let conn = Connection::open(&db_path).unwrap();
+        store::init_store(&conn).unwrap();
+        let default_id = store::ensure_default_deck(&conn).unwrap();
+
+        let decks = store::list_decks(&conn).unwrap();
+        assert_eq!(decks.len(), 1);
+        assert_eq!(decks[0].name, "Korean – General");
+        assert_eq!(default_id, decks[0].id);
+
+        let active_from_config = load_deck_config(&config_path);
+        assert!(active_from_config.is_none(), "no config file yet");
+
+        std::fs::remove_file(&db_path).unwrap();
+    }
+
+    #[test]
+    fn active_deck_persists_and_used_for_new_cards() {
+        let dir = std::env::temp_dir();
+        let db_path = dir.join("kaeda_test_active_deck.db");
+        let config_path = dir.join("kaeda_test_active_deck_config.json");
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(&config_path);
+
+        // Set up deck store with two decks
+        let conn = Connection::open(&db_path).unwrap();
+        store::init_store(&conn).unwrap();
+        let deck_a = store::create_deck(&conn, "Deck A").unwrap();
+        let deck_b = store::create_deck(&conn, "Deck B").unwrap();
+        assert_ne!(deck_a, deck_b);
+
+        // Save deck_b as active
+        save_deck_config(&config_path, deck_b).unwrap();
+
+        // Reload: verify config loads correctly
+        let loaded = load_deck_config(&config_path).unwrap();
+        assert_eq!(loaded, deck_b);
+
+        // Now simulate using active deck for a card
+        let state = MiningSessionState::new();
+        let srt_path = fixture_path("sample.srt");
+        state
+            .start_session(
+                &srt_path,
+                "session-deck".into(),
+                "video-1".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+
+        let card = state
+            .save_card(deck_b, "테스트".into(), "test".into())
+            .unwrap();
+        assert_eq!(card.deck_id, deck_b.0, "card should use active deck_id");
+
+        // Switch active deck and verify new card uses new deck
+        save_deck_config(&config_path, deck_a).unwrap();
+        let loaded_a = load_deck_config(&config_path).unwrap();
+        assert_eq!(loaded_a, deck_a);
+
+        state.set_current_index(1).unwrap();
+        let card2 = state
+            .save_card(deck_a, "테스트2".into(), "test2".into())
+            .unwrap();
+        assert_eq!(
+            card2.deck_id, deck_a.0,
+            "card should use new active deck_id"
+        );
+
+        std::fs::remove_file(&db_path).unwrap();
+        std::fs::remove_file(&config_path).unwrap();
     }
 }
