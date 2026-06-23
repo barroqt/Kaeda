@@ -27,12 +27,12 @@ cd app && cargo tauri dev
 
 ### Workflow
 
-1. Click **Start Session** and pick an `.srt` file
+1. Click **Start Session**, pick a media and an `.srt` file
 2. Navigate subtitles with **W/S** or mouse
-3. Select tokens with **A/D** (or click)
-4. The **Translation** field auto-fills from the Naver dictionary (editable)
+3. Select words with **A/D** or click
+4. The **Translation** field auto-fills from the Naver dictionary and is editable
 5. **Save Card** (`⌘+Enter`) or **Mark as Known** (`K`)
-6. Click **View Cards** to review, edit, or delete cards from the session
+6. Click **View Cards** to review, edit, or delete cards from the session and manage your decks
 7. Click **Export TSV** to produce an Anki-importable file
 
 If the video fails to load or play (unsupported codec, missing video server, etc.),
@@ -45,7 +45,7 @@ cards, and export.
 | Key(s)                | Action                        |
 | --------------------- | ----------------------------- |
 | `W` / `S`             | Navigate subtitles (up / down)|
-| `A` / `D`             | Select token (left / right)   |
+| `A` / `D`             | Select words (left / right)   |
 | `K`                   | Mark current line as known    |
 | `⌘+Enter` / `Ctrl+Enter` | Save card                  |
 | Arrow keys + Space    | Video playback controls       |
