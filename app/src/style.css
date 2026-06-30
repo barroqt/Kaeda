@@ -833,20 +833,11 @@ body {
 }
 
 #right-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 4px;
 }
 
 #right-panel-header h2 {
   margin-bottom: 0;
-}
-
-#right-panel-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 #deck-label {
@@ -867,6 +858,7 @@ body {
   border-radius: 4px;
   cursor: pointer;
   font-size: 12px;
+  align-self: flex-start;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
@@ -1138,40 +1130,8 @@ body {
   border-color: var(--accent-border);
 }
 
-#cards-deck-selector {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 12px;
-}
-
-#cards-deck-selector label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-#cards-deck-select {
-  padding: 8px 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 14px;
-  font-family: inherit;
-  outline: none;
-  cursor: pointer;
-  transition: border-color 0.2s;
-}
-
-#cards-deck-select:focus {
-  border-color: var(--accent-border);
-}
-
 .manage-decks-btn {
-  padding: 6px 10px;
+  padding: 8px 10px;
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1180,6 +1140,9 @@ body {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  margin-top: auto;
+  width: 100%;
+  text-align: center;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 

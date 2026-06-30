@@ -819,6 +819,12 @@ export default function App() {
       </main>
       {current && (
         <aside id="right-panel">
+          <button className="view-toggle" onClick={toggleViewCards}>
+            {viewingCards ? "Back to Mining" : "View Cards"}
+          </button>
+          <div id="right-panel-header">
+            <h2>{viewingCards ? "Session Cards" : "New Card"}</h2>
+          </div>
           <div id="deck-selector">
             <label htmlFor="deck-select">Deck</label>
             <select
@@ -833,37 +839,9 @@ export default function App() {
               ))}
             </select>
           </div>
-          <div id="right-panel-header">
-            <h2>{viewingCards ? "Session Cards" : "New Card"}</h2>
-            <div id="right-panel-header-actions">
-              {deckName && <span id="deck-label">{deckName}</span>}
-              {viewingCards && (
-                <button className="manage-decks-btn" onClick={() => setShowDeckManager(true)}>
-                  Manage decks…
-                </button>
-              )}
-              <button className="view-toggle" onClick={toggleViewCards}>
-                {viewingCards ? "Back to Mining" : "View Cards"}
-              </button>
-            </div>
-          </div>
 
           {viewingCards ? (
             <>
-              <div id="cards-deck-selector">
-                <label htmlFor="cards-deck-select">Deck</label>
-                <select
-                  id="cards-deck-select"
-                  value={activeDeckId ?? ""}
-                  onChange={(e) => handleDeckChange(Number(e.target.value))}
-                >
-                  {decks.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
               <div id="session-cards-list">
                 {(() => {
                   const filtered = sessionCards.filter((c) => c.deck_id === activeDeckId);
@@ -1044,6 +1022,9 @@ export default function App() {
               )}
             </>
           )}
+          <button className="manage-decks-btn" onClick={() => setShowDeckManager(true)}>
+            Manage decks…
+          </button>
         </aside>
       )}
 
@@ -1196,26 +1177,6 @@ export default function App() {
         </div>
       )}
 
-      {deletingDeckId != null && (
-        <div className="dialog-overlay" onClick={handleCancelDelete}>
-          <div className="dialog confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3>Delete Deck</h3>
-            <p>
-              Delete deck "{deletingDeckName}" and all its cards? This cannot be
-              undone.
-            </p>
-            <div className="dialog-actions">
-              <button className="dialog-btn dialog-btn-delete" onClick={handleConfirmDelete}>
-                Delete
-              </button>
-              <button className="dialog-btn dialog-btn-cancel" onClick={handleCancelDelete}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showDeckManager && (
         <div className="dialog-overlay" onClick={() => setShowDeckManager(false)}>
           <div className="dialog deck-manager-dialog" onClick={(e) => e.stopPropagation()}>
@@ -1283,6 +1244,26 @@ export default function App() {
             <div className="dialog-actions">
               <button className="dialog-btn dialog-btn-cancel" onClick={() => setShowDeckManager(false)}>
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deletingDeckId != null && (
+        <div className="dialog-overlay" onClick={handleCancelDelete}>
+          <div className="dialog confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Delete Deck</h3>
+            <p>
+              Delete deck "{deletingDeckName}" and all its cards? This cannot be
+              undone.
+            </p>
+            <div className="dialog-actions">
+              <button className="dialog-btn dialog-btn-delete" onClick={handleConfirmDelete}>
+                Delete
+              </button>
+              <button className="dialog-btn dialog-btn-cancel" onClick={handleCancelDelete}>
+                Cancel
               </button>
             </div>
           </div>
