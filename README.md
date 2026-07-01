@@ -50,6 +50,43 @@ cards, and export.
 | `⌘+Enter` / `Ctrl+Enter` | Save card                  |
 | Arrow keys + Space    | Video playback controls       |
 
+## Release builds
+
+### Cross-platform
+
+```bash
+./scripts/build_release.sh
+```
+
+This script:
+1. Cleans previous artifacts (`dist/` and `target/release/kaeda*`).
+2. Builds the CLI binary in release mode (`cargo build --release`).
+3. Builds the Tauri desktop app (`cargo tauri build`).
+4. Outputs versioned binaries and installers into `dist/kaeda-<version>-<target>/`.
+5. Creates a compressed archive (`tar.gz` on macOS/Linux, `.zip` on Windows).
+
+### Platform-specific
+
+| OS        | Script                  |
+| --------- | ----------------------- |
+| macOS     | `./scripts/build_macos.sh` |
+| Linux     | `./scripts/build_linux.sh` (EXPERIMENTAL) |
+| Windows   | `scripts\build_windows.bat` |
+
+> **Linux builds are experimental.** The app has not been extensively tested on
+> Linux. You may encounter issues with WebKitGTK media codec support, missing
+> system libraries, or window integration. Please report problems at
+> [the issue tracker](https://github.com/anomalyco/opencode/issues).
+
+### Verification
+
+```bash
+./scripts/test_release.sh [path/to/kaeda]
+```
+
+The test script runs the CLI binary through a battery of smoke tests:
+`--help`, `stats`, `known add`/`list`, and parsing a sample `.srt` file.
+
 ## CLI / TUI
 
 ### Commands
