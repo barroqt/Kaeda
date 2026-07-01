@@ -116,6 +116,7 @@ The interface shows three panes: **context** (current subtitle),
 
 ```bash
 cargo build                    # builds root binary + core
+cargo run -- --version         # show version
 cargo run -- mine <file.srt>   # start TUI mining session
 cargo run -- stats             # show stats
 cargo run -- known add <word>  # add known word

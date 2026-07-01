@@ -12,7 +12,7 @@ use kaeda_core::store::{Stats, add_known_word, init_store, list_known_words};
 use kaeda_core::subtitle::entries_from_srt;
 
 #[derive(Parser)]
-#[command(name = "kaeda", about = "Korean vocabulary mining TUI")]
+#[command(name = "kaeda", version, about = "Korean vocabulary mining TUI")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

@@ -965,6 +965,24 @@ fn get_video_server_port(state: tauri::State<'_, VideoServerState>) -> u16 {
     state.port
 }
 
+#[derive(serde::Serialize)]
+pub struct AppVersionInfo {
+    pub version: String,
+    pub name: String,
+    pub platform: String,
+    pub arch: String,
+}
+
+#[tauri::command]
+fn get_app_version() -> AppVersionInfo {
+    AppVersionInfo {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        name: env!("CARGO_PKG_NAME").to_string(),
+        platform: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+    }
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -1044,6 +1062,7 @@ pub fn run() {
             create_deck,
             rename_deck,
             delete_deck,
+            get_app_version,
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|err| {
