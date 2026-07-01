@@ -4,16 +4,10 @@
   "release_page": "https://github.com/barroqt/kaeda/releases/latest",
   "platforms": [
     {
-      "id": "macos-arm",
-      "label": "macOS (Apple Silicon)",
+      "id": "macos",
+      "label": "macOS",
       "desc": "macOS 11+",
-      "target": "aarch64-apple-darwin"
-    },
-    {
-      "id": "macos-x86",
-      "label": "macOS (Intel)",
-      "desc": "macOS 11+",
-      "target": "x86_64-apple-darwin"
+      "targets": ["aarch64-apple-darwin", "x86_64-apple-darwin"]
     },
     {
       "id": "windows",
