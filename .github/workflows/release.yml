@@ -1,0 +1,175 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-13
+            name: macOS (x86_64)
+          - os: macos-latest
+            name: macOS (ARM)
+          - os: ubuntu-latest
+            name: Linux
+          - os: windows-latest
+            name: Windows
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-store
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('app/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libavutil-dev \
+            libavcodec-dev \
+            libavformat-dev \
+            libavdevice-dev \
+            libswscale-dev \
+            libavfilter-dev
+
+      - name: Detect host target
+        id: host
+        shell: bash
+        run: |
+          TARGET="$(rustc -vV | grep host | awk '{print $2}')"
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "Building for $TARGET"
+
+      - name: Install JS dependencies
+        shell: bash
+        run: |
+          cd app
+          pnpm install --frozen-lockfile
+
+      - name: Build CLI binary
+        shell: bash
+        run: cargo build --release --bin kaeda
+
+      - name: Build Tauri desktop app
+        shell: bash
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+        run: |
+          cd app
+          cargo tauri build
+
+      - name: Stage artifacts into dist/
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          TARGET="${{ steps.host.outputs.target }}"
+
+          ARCHIVE_DIR="dist/kaeda-v${VERSION}-${TARGET}"
+          ARCHIVE_NAME="kaeda-v${VERSION}-${TARGET}.tar.gz"
+
+          rm -rf "$ARCHIVE_DIR"
+          mkdir -p "$ARCHIVE_DIR"
+
+          # CLI binary
+          CLI_SRC="target/release/kaeda"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            CLI_SRC="${CLI_SRC}.exe"
+          fi
+          cp "$CLI_SRC" "$ARCHIVE_DIR/"
+
+          # Tauri bundles
+          BUNDLE_DIR="app/src-tauri/target/release/bundle"
+          if [ -d "$BUNDLE_DIR" ]; then
+            if [ "${{ runner.os }}" = "macOS" ]; then
+              for dmg in "$BUNDLE_DIR/dmg/"*.dmg; do
+                [ -f "$dmg" ] && cp "$dmg" "$ARCHIVE_DIR/"
+              done
+              for app_bundle in "$BUNDLE_DIR/macos/"*.app; do
+                [ -d "$app_bundle" ] && cp -R "$app_bundle" "$ARCHIVE_DIR/"
+              done
+            elif [ "${{ runner.os }}" = "Linux" ]; then
+              for f in "$BUNDLE_DIR/deb/"*.deb "$BUNDLE_DIR/appimage/"*.AppImage; do
+                [ -f "$f" ] && cp "$f" "$ARCHIVE_DIR/"
+              done
+            elif [ "${{ runner.os }}" = "Windows" ]; then
+              for f in "$BUNDLE_DIR/msi/"*.msi "$BUNDLE_DIR/nsis/"*.exe; do
+                [ -f "$f" ] && cp "$f" "$ARCHIVE_DIR/"
+              done
+            fi
+          fi
+
+          # Metadata
+          echo "kaeda v${VERSION} — ${TARGET}" > "$ARCHIVE_DIR/VERSION"
+          echo "Built: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$ARCHIVE_DIR/VERSION"
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            echo "STATUS: EXPERIMENTAL — not recommended for production use" >> "$ARCHIVE_DIR/VERSION"
+            echo "experimental=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Create archive
+          (cd dist && tar czf "${ARCHIVE_NAME}" "kaeda-v${VERSION}-${TARGET}")
+          echo "archive=dist/${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release artifact
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: ${{ steps.stage.outputs.archive }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
