@@ -76,7 +76,7 @@ This script:
 > **Linux builds are experimental.** The app has not been extensively tested on
 > Linux. You may encounter issues with WebKitGTK media codec support, missing
 > system libraries, or window integration. Please report problems at
-> [the issue tracker](https://github.com/anomalyco/opencode/issues).
+> [the issue tracker](https://github.com/barroqt/kaeda/issues).
 
 ### Verification
 

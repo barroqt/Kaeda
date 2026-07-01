@@ -59,7 +59,7 @@ edit them on the GitHub Releases page before publishing.
 
 ### 4. Publish the release
 
-1. Go to **https://github.com/anomalyco/kaeda/releases**
+1. Go to **https://github.com/barroqt/kaeda/releases**
 2. Find the draft created by CI.
 3. Review the auto-generated release notes — add highlights, known issues,
    important upgrade notes.

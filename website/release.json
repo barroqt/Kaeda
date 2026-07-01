@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "tag": "v0.2.0",
+  "release_page": "https://github.com/barroqt/kaeda/releases/latest",
+  "platforms": [
+    {
+      "id": "macos-arm",
+      "label": "macOS (Apple Silicon)",
+      "desc": "macOS 11+",
+      "target": "aarch64-apple-darwin"
+    },
+    {
+      "id": "macos-x86",
+      "label": "macOS (Intel)",
+      "desc": "macOS 11+",
+      "target": "x86_64-apple-darwin"
+    },
+    {
+      "id": "windows",
+      "label": "Windows",
+      "desc": "Windows 10 / 11",
+      "target": "x86_64-pc-windows-msvc"
+    },
+    {
+      "id": "linux",
+      "label": "Linux",
+      "desc": "deb / AppImage",
+      "target": "x86_64-unknown-linux-gnu",
+      "experimental": true
+    }
+  ]
+}

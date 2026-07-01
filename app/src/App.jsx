@@ -1283,8 +1283,8 @@ export default function App() {
                   and export to Anki.
                 </div>
                 <div className="about-links">
-                  <a href="https://github.com/anomalyco/kaeda" target="_blank" rel="noopener noreferrer">
-                    github.com/anomalyco/kaeda
+                  <a href="https://github.com/barroqt/kaeda" target="_blank" rel="noopener noreferrer">
+                    github.com/barroqt/kaeda
                   </a>
                 </div>
               </>

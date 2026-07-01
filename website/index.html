@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kaeda — Korean sentence mining, made fast</title>
+    <meta name="description" content="Kaeda is a desktop tool for Korean learners that turns local video and SRT subtitles into Anki‑ready flashcards. Fast, keyboard‑driven, local‑first." />
+    <style>
+      :root {
+        --sakura: #F8A3A9;
+        --koi: #FB7A2A;
+        --matcha: #7D4A32;
+        --indigo: #2C2F5A;
+        --washi: #EDE3D6;
+        --text: #2A1A0E;
+        --text-light: #6B5A4A;
+        --text-on-indigo: #E8E0D0;
+        --border: #C8B8A0;
+      }
+
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        background: var(--washi);
+        color: var(--text);
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      a { color: var(--matcha); text-decoration: none; transition: color 0.15s; }
+      a:hover { color: var(--koi); text-decoration: underline; }
+
+      .container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+      /* Header */
+      header {
+        background: var(--indigo);
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        padding: 16px 0;
+      }
+
+      header .container {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--text-on-indigo);
+      }
+
+      .logo img { height: 32px; width: auto; filter: brightness(0) invert(1); }
+
+      nav { display: flex; gap: 24px; }
+      nav a { font-size: 14px; font-weight: 500; color: var(--text-on-indigo); }
+      nav a:hover { color: var(--sakura); }
+
+      /* Hero */
+      #hero {
+        text-align: center;
+        padding: 80px 0 64px;
+      }
+
+      #hero h1 {
+        font-size: 40px;
+        font-weight: 800;
+        color: var(--indigo);
+        letter-spacing: -0.02em;
+        margin-bottom: 16px;
+      }
+
+      #hero .tagline {
+        font-size: 18px;
+        color: var(--text-light);
+        max-width: 600px;
+        margin: 0 auto 32px;
+      }
+
+      .btn-group { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 28px;
+        border-radius: 6px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s, border-color 0.15s;
+        border: 1px solid transparent;
+        text-decoration: none;
+      }
+
+      .btn-primary {
+        background: var(--koi);
+        color: var(--indigo);
+        border-color: var(--koi);
+      }
+
+      .btn-primary:hover {
+        background: #e0681a;
+        border-color: #e0681a;
+        color: var(--indigo);
+        text-decoration: none;
+      }
+
+      .btn-secondary {
+        background: transparent;
+        color: var(--matcha);
+        border-color: var(--border);
+      }
+
+      .btn-secondary:hover {
+        background: var(--washi);
+        border-color: var(--matcha);
+        text-decoration: none;
+      }
+
+      /* UI Mockup */
+      #mockup-section {
+        padding: 0 0 72px;
+      }
+
+      .ui-mockup {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 12px rgba(44, 47, 90, 0.06);
+      }
+
+      .mockup-toolbar {
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        gap: 8px;
+      }
+
+      .mockup-toolbar .btn-sm {
+        padding: 6px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        border-radius: 4px;
+        border: 1px solid var(--koi);
+        background: var(--sakura);
+        color: var(--indigo);
+      }
+
+      .mockup-body {
+        display: flex;
+        min-height: 360px;
+      }
+
+      .mockup-sidebar {
+        width: 200px;
+        min-width: 200px;
+        border-right: 1px solid var(--border);
+        padding: 8px 0;
+        background: var(--washi);
+      }
+
+      .mockup-item {
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+        cursor: default;
+      }
+
+      .mockup-item.active {
+        background: var(--sakura);
+        border-left: 3px solid var(--koi);
+      }
+
+      .mockup-item .ts {
+        font-size: 11px;
+        color: var(--indigo);
+        font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+        margin-bottom: 2px;
+      }
+
+      .mockup-item .txt {
+        font-size: 13px;
+        color: var(--text);
+      }
+
+      .mockup-item.known { opacity: 0.45; }
+      .mockup-item.known .txt { text-decoration: line-through; }
+
+      .mockup-center {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        gap: 16px;
+        background: var(--washi);
+      }
+
+      .mockup-center .subtitle-large {
+        font-size: 20px;
+        color: var(--matcha);
+        text-align: center;
+        line-height: 1.5;
+        max-width: 400px;
+      }
+
+      .mockup-center .word-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        justify-content: center;
+      }
+
+      .mockup-center .pill {
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-size: 14px;
+        background: var(--washi);
+        border: 1px solid var(--border);
+        color: var(--text);
+      }
+
+      .mockup-center .pill.selected {
+        background: var(--sakura);
+        border-color: var(--koi);
+      }
+
+      .mockup-right {
+        width: 220px;
+        min-width: 220px;
+        border-left: 1px solid var(--border);
+        padding: 20px;
+        background: var(--washi);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .mockup-right .field-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--indigo);
+      }
+
+      .mockup-right .field-box {
+        padding: 8px 10px;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        font-size: 13px;
+        color: var(--text);
+      }
+
+      .mockup-right .saved-badge {
+        background: var(--sakura);
+        border: 1px solid var(--koi);
+        border-radius: 4px;
+        padding: 8px;
+        font-size: 12px;
+        text-align: center;
+        color: var(--indigo);
+      }
+
+      /* Features */
+      #features {
+        padding: 64px 0;
+        border-top: 1px solid var(--border);
+      }
+
+      #features h2 {
+        text-align: center;
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--indigo);
+        margin-bottom: 48px;
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 32px;
+      }
+
+      .feature-card {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 28px 24px;
+        transition: box-shadow 0.15s;
+      }
+
+      .feature-card:hover { box-shadow: 0 2px 12px rgba(44, 47, 90, 0.06); }
+
+      .feature-card h3 {
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--matcha);
+        margin-bottom: 8px;
+      }
+
+      .feature-card p { font-size: 14px; color: var(--text-light); line-height: 1.6; }
+
+      /* Download */
+      #download {
+        padding: 72px 0;
+        border-top: 1px solid var(--border);
+        text-align: center;
+      }
+
+      #download h2 {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--indigo);
+        margin-bottom: 12px;
+      }
+
+      #download .subtitle {
+        font-size: 15px;
+        color: var(--text-light);
+        margin-bottom: 40px;
+      }
+
+      .download-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+        max-width: 880px;
+        margin: 0 auto 32px;
+      }
+
+      .download-card {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 28px 20px;
+        text-align: center;
+        transition: border-color 0.15s, box-shadow 0.15s;
+      }
+
+      .download-card:hover {
+        border-color: var(--koi);
+        box-shadow: 0 2px 12px rgba(251, 122, 42, 0.12);
+      }
+
+      .download-card .os-icon {
+        font-size: 32px;
+        margin-bottom: 12px;
+        display: block;
+      }
+
+      .download-card h3 {
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--matcha);
+        margin-bottom: 6px;
+      }
+
+      .download-card .os-desc {
+        font-size: 13px;
+        color: var(--text-light);
+        margin-bottom: 20px;
+      }
+
+      .download-card .btn { font-size: 14px; padding: 10px 24px; }
+
+      .download-card .experimental {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--koi);
+        background: var(--sakura);
+        padding: 2px 8px;
+        border-radius: 3px;
+        margin-bottom: 12px;
+      }
+
+      .dl-note {
+        font-size: 13px;
+        color: var(--text-light);
+      }
+
+      .dl-note a { font-weight: 500; }
+
+      .dl-button[data-ready="false"] {
+        opacity: 0.5;
+        pointer-events: none;
+      }
+
+      /* Footer */
+      footer {
+        border-top: 1px solid var(--border);
+        padding: 32px 0;
+        text-align: center;
+      }
+
+      footer p {
+        font-size: 13px;
+        color: var(--text-light);
+      }
+
+      footer .footer-links {
+        display: flex;
+        justify-content: center;
+        gap: 24px;
+        margin-bottom: 12px;
+      }
+
+      footer .footer-links a { font-size: 13px; font-weight: 500; }
+
+      @media (max-width: 720px) {
+        #hero h1 { font-size: 28px; }
+        .mockup-sidebar, .mockup-right { display: none; }
+        .btn-group { flex-direction: column; align-items: center; }
+        header .container { flex-direction: column; gap: 12px; }
+        .download-grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <div class="container">
+        <a href="." class="logo">
+          <img src="kaeda_logo.png" alt="Kaeda" width="32" height="32" />
+          Kaeda
+        </a>
+        <nav>
+          <a href="#features">Features</a>
+          <a href="#download">Download</a>
+          <a href="https://github.com/barroqt/kaeda" target="_blank" rel="noopener">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <!-- Hero -->
+      <section id="hero">
+        <div class="container">
+          <h1>Korean sentence mining, made fast.</h1>
+          <p class="tagline">
+            Kaeda turns local Korean video and SRT subtitles into Anki‑ready flashcards.
+            Navigate with your keyboard, select words, and export — all in one desktop app.
+          </p>
+          <div class="btn-group">
+            <a href="#download" class="btn btn-primary">Download Kaeda</a>
+            <a href="https://github.com/barroqt/kaeda" target="_blank" rel="noopener" class="btn btn-secondary">View on GitHub</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- UI Mockup -->
+      <section id="mockup-section">
+        <div class="container">
+          <div class="ui-mockup">
+            <div class="mockup-toolbar">
+              <span class="btn-sm">Start Session</span>
+              <span class="btn-sm">View Cards</span>
+              <span class="btn-sm">Export TSV</span>
+            </div>
+            <div class="mockup-body">
+              <div class="mockup-sidebar">
+                <div class="mockup-item">
+                  <div class="ts">00:01:12</div>
+                  <div class="txt">이게 무슨 말이야?</div>
+                </div>
+                <div class="mockup-item active">
+                  <div class="ts">00:01:15</div>
+                  <div class="txt">그냥 궁금해서 물어봤어.</div>
+                </div>
+                <div class="mockup-item known">
+                  <div class="ts">00:01:17</div>
+                  <div class="txt">알았어, 알았어!</div>
+                </div>
+                <div class="mockup-item">
+                  <div class="ts">00:01:20</div>
+                  <div class="txt">다음에 꼭 가자.</div>
+                </div>
+              </div>
+              <div class="mockup-center">
+                <div class="subtitle-large">그냥 궁금해서 물어봤어.</div>
+                <div class="word-pills">
+                  <span class="pill">그냥</span>
+                  <span class="pill selected">궁금해서</span>
+                  <span class="pill">물어봤어</span>
+                  <span class="pill">.</span>
+                </div>
+              </div>
+              <div class="mockup-right">
+                <div>
+                  <div class="field-label">Sentence</div>
+                  <div class="field-box">그냥 궁금해서 물어봤어.</div>
+                </div>
+                <div>
+                  <div class="field-label">Target</div>
+                  <div class="field-box">궁금하다</div>
+                </div>
+                <div>
+                  <div class="field-label">Explanation</div>
+                  <div class="field-box" style="min-height:60px;">to be curious, to wonder</div>
+                </div>
+                <div class="saved-badge">✓ Card saved</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Features -->
+      <section id="features">
+        <div class="container">
+          <h2>Why Kaeda?</h2>
+          <div class="feature-grid">
+            <div class="feature-card">
+              <h3>Keyboard‑driven workflow</h3>
+              <p>
+                Navigate subtitles, select target words, save cards, and mark lines known —
+                all without lifting your hands from the keyboard.
+              </p>
+            </div>
+            <div class="feature-card">
+              <h3>Smart word suggestions</h3>
+              <p>
+                Built‑in Korean tokenizer and lemma lookup auto‑fill the target word and
+                explanation. Editable, so you stay in control.
+              </p>
+            </div>
+            <div class="feature-card">
+              <h3>Anki‑ready export</h3>
+              <p>
+                Export your session cards as a TSV file that imports directly into Anki.
+                Sentence, target, explanation, deck, and tags — no mapping hassle.
+              </p>
+            </div>
+            <div class="feature-card">
+              <h3>Local &amp; private</h3>
+              <p>
+                Everything runs on your machine. No accounts, no cloud uploads. Your
+                mining data stays yours.
+              </p>
+            </div>
+            <div class="feature-card">
+              <h3>Known‑line persistence</h3>
+              <p>
+                Mark subtitles as known and they stay dimmed across sessions. Focus on
+                new material, not déjà vu.
+              </p>
+            </div>
+            <div class="feature-card">
+              <h3>Line‑level audio replay</h3>
+              <p>
+                Replay the current subtitle with one click or hotkey. The video seeks to
+                the right moment and plays just the line.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Download -->
+      <section id="download">
+        <div class="container">
+          <h2>Download</h2>
+          <p class="subtitle">Version <span id="release-version">—</span> &mdash; available for macOS, Windows, and Linux.</p>
+
+          <div class="download-grid" id="download-grid">
+            <div class="download-card" data-platform="macos-arm">
+              <span class="os-icon">&#x1F5A5;&#xFE0F;</span>
+              <h3>macOS (Apple Silicon)</h3>
+              <p class="os-desc">macOS 11+</p>
+              <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-primary dl-button" data-ready="false">
+                Download
+              </a>
+            </div>
+
+            <div class="download-card" data-platform="macos-x86">
+              <span class="os-icon">&#x1F5A5;&#xFE0F;</span>
+              <h3>macOS (Intel)</h3>
+              <p class="os-desc">macOS 11+</p>
+              <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-primary dl-button" data-ready="false">
+                Download
+              </a>
+            </div>
+
+            <div class="download-card" data-platform="windows">
+              <span class="os-icon">&#x1F4BB;</span>
+              <h3>Windows</h3>
+              <p class="os-desc">Windows 10 / 11</p>
+              <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-primary dl-button" data-ready="false">
+                Download
+              </a>
+            </div>
+
+            <div class="download-card" data-platform="linux">
+              <span class="os-icon">&#x1F427;</span>
+              <h3>Linux</h3>
+              <p class="os-desc">deb / AppImage</p>
+              <span class="experimental">Experimental</span>
+              <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-secondary dl-button" data-ready="false">
+                Download
+              </a>
+            </div>
+          </div>
+
+          <p class="dl-note">
+            All downloads are hosted on
+            <a href="https://github.com/barroqt/kaeda/releases" target="_blank" rel="noopener">GitHub Releases</a>.
+            See the <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener">latest release</a>
+            for checksums and changelogs.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      (function() {
+        var BASE = 'https://github.com/barroqt/kaeda/releases/download';
+
+        function loadConfig() {
+          var xhr = new XMLHttpRequest();
+          xhr.open('GET', 'release.json', true);
+          xhr.onload = function() {
+            if (xhr.status >= 200 && xhr.status < 400) {
+              try {
+                var cfg = JSON.parse(xhr.responseText);
+                applyConfig(cfg);
+              } catch(e) {}
+            }
+          };
+          xhr.send();
+        }
+
+        function applyConfig(cfg) {
+          var ver = document.getElementById('release-version');
+          if (ver) ver.textContent = 'v' + cfg.version;
+
+          var buttons = document.querySelectorAll('.dl-button');
+          for (var i = 0; i < buttons.length; i++) {
+            var card = buttons[i].closest('[data-platform]');
+            if (!card) continue;
+            var platformId = card.getAttribute('data-platform');
+            var platform = null;
+            for (var j = 0; j < cfg.platforms.length; j++) {
+              if (cfg.platforms[j].id === platformId) {
+                platform = cfg.platforms[j];
+                break;
+              }
+            }
+            if (!platform) continue;
+
+            var assetName = 'kaeda-v' + cfg.version + '-' + platform.target + '.tar.gz';
+            var downloadUrl = BASE + '/' + cfg.tag + '/' + assetName;
+
+            buttons[i].setAttribute('href', downloadUrl);
+            buttons[i].setAttribute('data-ready', 'true');
+          }
+        }
+
+        loadConfig();
+      })();
+    </script>
+
+    <footer>
+      <div class="container">
+        <div class="footer-links">
+          <a href="https://github.com/barroqt/kaeda" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/barroqt/kaeda/issues" target="_blank" rel="noopener">Issues</a>
+          <a href="https://github.com/barroqt/kaeda/releases" target="_blank" rel="noopener">Releases</a>
+        </div>
+        <p>Kaeda is free and open source software.</p>
+      </div>
+    </footer>
+  </body>
+</html>
