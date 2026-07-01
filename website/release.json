@@ -19,8 +19,7 @@
       "id": "linux",
       "label": "Linux",
       "desc": "deb / AppImage",
-      "target": "x86_64-unknown-linux-gnu",
-      "experimental": true
+      "target": "x86_64-unknown-linux-gnu"
     }
   ]
 }

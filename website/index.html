@@ -8,14 +8,15 @@
     <style>
       :root {
         --paper: #E8DAB2;
-        --card: #F0E8D5;
-        --ink: #5A3E2A;
-        --ink-light: #8A7A6A;
+        --card: #F5EDD8;
+        --ink: #3A2A1A;
+        --ink-light: #7A6A5A;
         --wood: #6B3E2E;
         --blue: #3B5BA5;
         --crimson: #A63D5E;
         --rose: #E7A8B2;
         --border: #C8B89A;
+        --white: #FFFDF5;
       }
 
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -48,20 +49,25 @@
 
       /* Header */
       header {
-        background: var(--card);
-        padding: 16px 0;
-        border-bottom: 2px solid var(--border);
+        background: var(--blue);
+        padding: 14px 0;
         position: relative;
       }
 
       header::after {
         content: '';
         position: absolute;
-        bottom: -4px;
+        bottom: -3px;
         left: 0;
         right: 0;
-        height: 1px;
-        background: var(--border);
+        height: 3px;
+        background: repeating-linear-gradient(
+          to right,
+          var(--border) 0px,
+          var(--border) 2px,
+          transparent 2px,
+          transparent 6px
+        );
       }
 
       header .container {
@@ -76,15 +82,19 @@
         gap: 10px;
         font-size: 20px;
         font-weight: 700;
-        color: var(--wood);
+        color: var(--white);
         font-family: Georgia, "Times New Roman", serif;
       }
 
-      .logo svg { height: 28px; width: auto; }
+      .logo img {
+        height: 30px;
+        width: auto;
+        display: block;
+      }
 
       nav { display: flex; gap: 24px; }
-      nav a { font-size: 14px; font-weight: 500; color: var(--wood); }
-      nav a:hover { color: var(--crimson); }
+      nav a { font-size: 14px; font-weight: 500; color: var(--white); opacity: 0.85; }
+      nav a:hover { opacity: 1; color: var(--white); }
 
       /* Hero */
       #hero {
@@ -99,6 +109,7 @@
         font-family: Georgia, "Times New Roman", serif;
         letter-spacing: -0.01em;
         margin-bottom: 16px;
+        line-height: 1.2;
       }
 
       #hero .tagline {
@@ -109,6 +120,7 @@
       }
 
       .btn-group { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+      .btn-group-vertical { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
 
       .btn {
         display: inline-flex;
@@ -401,19 +413,6 @@
 
       .download-card .btn { font-size: 14px; padding: 10px 24px; }
 
-      .download-card .experimental {
-        display: inline-block;
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: var(--crimson);
-        background: var(--rose);
-        padding: 2px 8px;
-        border-radius: 0;
-        margin-bottom: 12px;
-      }
-
       .dl-note {
         font-size: 13px;
         color: var(--ink-light);
@@ -461,12 +460,7 @@
     <header>
       <div class="container">
         <a href="." class="logo">
-          <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="14" cy="14" r="13" fill="#6B3E2E"/>
-            <path d="M8 8l6 6-6 6" stroke="#E8DAB2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M14 8v12" stroke="#E8DAB2" stroke-width="3" stroke-linecap="round"/>
-            <circle cx="20" cy="9" r="3" fill="#A63D5E"/>
-          </svg>
+          <img src="kaeda_logo.png" alt="Kaeda" />
           Kaeda
         </a>
         <nav>
@@ -552,17 +546,22 @@
             <div class="download-card" data-platform="macos">
               <span class="os-icon">&#x1F5A5;&#xFE0F;</span>
               <h3>macOS</h3>
-              <p class="os-desc">Apple Silicon &amp; Intel &mdash; macOS 11+</p>
-              <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-primary dl-button" data-ready="false">
-                Download
-              </a>
+              <p class="os-desc">macOS 11+</p>
+              <div class="btn-group-vertical">
+                <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-primary dl-button" data-target="aarch64-apple-darwin" data-ready="false">
+                  Apple Silicon
+                </a>
+                <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-secondary dl-button" data-target="x86_64-apple-darwin" data-ready="false">
+                  Intel
+                </a>
+              </div>
             </div>
 
             <div class="download-card" data-platform="windows">
               <span class="os-icon">&#x1F4BB;</span>
               <h3>Windows</h3>
               <p class="os-desc">Windows 10 / 11</p>
-              <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-primary dl-button" data-ready="false">
+              <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-primary dl-button" data-target="x86_64-pc-windows-msvc" data-ready="false">
                 Download
               </a>
             </div>
@@ -571,8 +570,7 @@
               <span class="os-icon">&#x1F427;</span>
               <h3>Linux</h3>
               <p class="os-desc">deb / AppImage</p>
-              <span class="experimental">Experimental</span>
-              <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-secondary dl-button" data-ready="false">
+              <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-secondary dl-button" data-target="x86_64-unknown-linux-gnu" data-ready="false">
                 Download
               </a>
             </div>
@@ -612,25 +610,8 @@
 
           var buttons = document.querySelectorAll('.dl-button');
           for (var i = 0; i < buttons.length; i++) {
-            var card = buttons[i].closest('[data-platform]');
-            if (!card) continue;
-            var platformId = card.getAttribute('data-platform');
-            var platform = null;
-            for (var j = 0; j < cfg.platforms.length; j++) {
-              if (cfg.platforms[j].id === platformId) {
-                platform = cfg.platforms[j];
-                break;
-              }
-            }
-            if (!platform) continue;
-
-            var target;
-            if (platform.targets) {
-              var isArm = /arm64|aarch64/i.test(navigator.userAgent);
-              target = isArm ? platform.targets[0] : platform.targets[1];
-            } else {
-              target = platform.target;
-            }
+            var target = buttons[i].getAttribute('data-target');
+            if (!target) continue;
 
             var assetName = 'kaeda-v' + cfg.version + '-' + target + '.tar.gz';
             var downloadUrl = BASE + '/' + cfg.tag + '/' + assetName;
