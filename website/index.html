@@ -1,639 +1,326 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Kaeda — Korean sentence mining, made fast</title>
-    <meta name="description" content="Kaeda is a desktop tool for Korean learners that turns local video and SRT subtitles into Anki‑ready flashcards. Fast, keyboard‑driven, local‑first." />
-    <style>
-      :root {
-        --paper: #E8DAB2;
-        --card: #F5EDD8;
-        --ink: #3A2A1A;
-        --ink-light: #7A6A5A;
-        --wood: #6B3E2E;
-        --blue: #3B5BA5;
-        --crimson: #A63D5E;
-        --rose: #E7A8B2;
-        --border: #C8B89A;
-        --white: #FFFDF5;
-      }
-
-      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-        background: var(--paper);
-        color: var(--ink);
-        line-height: 1.7;
-        -webkit-font-smoothing: antialiased;
-      }
-
-      body::before {
-        content: '';
-        display: block;
-        height: 3px;
-        background: repeating-linear-gradient(
-          to right,
-          var(--border) 0px,
-          var(--border) 2px,
-          transparent 2px,
-          transparent 6px
-        );
-      }
-
-      a { color: var(--blue); text-decoration: none; transition: color 0.15s; }
-      a:hover { color: var(--crimson); text-decoration: underline; }
-
-      .container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
-
-      /* Header */
-      header {
-        background: var(--blue);
-        padding: 14px 0;
-        position: relative;
-      }
-
-      header::after {
-        content: '';
-        position: absolute;
-        bottom: -3px;
-        left: 0;
-        right: 0;
-        height: 3px;
-        background: repeating-linear-gradient(
-          to right,
-          var(--border) 0px,
-          var(--border) 2px,
-          transparent 2px,
-          transparent 6px
-        );
-      }
-
-      header .container {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-      }
-
-      .logo {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-size: 20px;
-        font-weight: 700;
-        color: var(--white);
-        font-family: Georgia, "Times New Roman", serif;
-      }
-
-      .logo img {
-        height: 30px;
-        width: auto;
-        display: block;
-      }
-
-      nav { display: flex; gap: 24px; }
-      nav a { font-size: 14px; font-weight: 500; color: var(--white); opacity: 0.85; }
-      nav a:hover { opacity: 1; color: var(--white); }
-
-      /* Hero */
-      #hero {
-        text-align: center;
-        padding: 80px 0 64px;
-      }
-
-      #hero h1 {
-        font-size: 40px;
-        font-weight: 800;
-        color: var(--wood);
-        font-family: Georgia, "Times New Roman", serif;
-        letter-spacing: -0.01em;
-        margin-bottom: 16px;
-        line-height: 1.2;
-      }
-
-      #hero .tagline {
-        font-size: 18px;
-        color: var(--ink-light);
-        max-width: 600px;
-        margin: 0 auto 32px;
-      }
-
-      .btn-group { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-      .btn-group-vertical { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
-
-      .btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 12px 28px;
-        border-radius: 0;
-        font-size: 15px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: background 0.15s, color 0.15s, border-color 0.15s;
-        border: 1px solid transparent;
-        text-decoration: none;
-      }
-
-      .btn-primary {
-        background: var(--crimson);
-        color: #fff;
-        border-color: var(--crimson);
-      }
-
-      .btn-primary:hover {
-        background: #8e2f4e;
-        border-color: #8e2f4e;
-        color: #fff;
-        text-decoration: none;
-      }
-
-      .btn-secondary {
-        background: transparent;
-        color: var(--wood);
-        border-color: var(--border);
-      }
-
-      .btn-secondary:hover {
-        background: var(--card);
-        border-color: var(--wood);
-        text-decoration: none;
-      }
-
-      /* UI Mockup */
-      #mockup-section {
-        padding: 0 0 72px;
-      }
-
-      .ui-mockup {
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 0;
-        overflow: hidden;
-      }
-
-      .mockup-toolbar {
-        padding: 10px 16px;
-        border-bottom: 2px solid var(--border);
-        display: flex;
-        gap: 8px;
-      }
-
-      .mockup-toolbar .btn-sm {
-        padding: 6px 14px;
-        font-size: 12px;
-        font-weight: 600;
-        border-radius: 0;
-        border: 1px solid var(--crimson);
-        background: var(--rose);
-        color: var(--wood);
-      }
-
-      .mockup-body {
-        display: flex;
-        min-height: 360px;
-      }
-
-      .mockup-sidebar {
-        width: 200px;
-        min-width: 200px;
-        border-right: 1px solid var(--border);
-        padding: 8px 0;
-        background: var(--paper);
-      }
-
-      .mockup-item {
-        padding: 10px 14px;
-        border-bottom: 1px solid var(--border);
-        cursor: default;
-      }
-
-      .mockup-item.active {
-        background: var(--rose);
-        border-left: 3px solid var(--crimson);
-      }
-
-      .mockup-item .ts {
-        font-size: 11px;
-        color: var(--blue);
-        font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
-        margin-bottom: 2px;
-      }
-
-      .mockup-item .txt {
-        font-size: 13px;
-        color: var(--ink);
-      }
-
-      .mockup-item.known { opacity: 0.45; }
-      .mockup-item.known .txt { text-decoration: line-through; }
-
-      .mockup-center {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
-        gap: 16px;
-        background: var(--paper);
-      }
-
-      .mockup-center .subtitle-large {
-        font-size: 20px;
-        color: var(--wood);
-        text-align: center;
-        line-height: 1.5;
-        max-width: 400px;
-      }
-
-      .mockup-center .word-pills {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-        justify-content: center;
-      }
-
-      .mockup-center .pill {
-        padding: 4px 10px;
-        border-radius: 0;
-        font-size: 14px;
-        background: var(--paper);
-        border: 1px solid var(--border);
-        color: var(--ink);
-      }
-
-      .mockup-center .pill.selected {
-        background: var(--rose);
-        border-color: var(--crimson);
-      }
-
-      .mockup-right {
-        width: 220px;
-        min-width: 220px;
-        border-left: 1px solid var(--border);
-        padding: 20px;
-        background: var(--paper);
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
-
-      .mockup-right .field-label {
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: var(--blue);
-      }
-
-      .mockup-right .field-box {
-        padding: 8px 10px;
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 0;
-        font-size: 13px;
-        color: var(--ink);
-      }
-
-      .mockup-right .saved-badge {
-        background: var(--rose);
-        border: 1px solid var(--crimson);
-        border-radius: 0;
-        padding: 8px;
-        font-size: 12px;
-        text-align: center;
-        color: var(--wood);
-      }
-
-      /* Features */
-      #features {
-        padding: 64px 0;
-        border-top: 2px solid var(--border);
-      }
-
-      #features h2 {
-        text-align: center;
-        font-size: 28px;
-        font-weight: 700;
-        color: var(--wood);
-        font-family: Georgia, "Times New Roman", serif;
-        margin-bottom: 48px;
-      }
-
-      .feature-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        gap: 32px;
-      }
-
-      .feature-card {
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 0;
-        padding: 28px 24px;
-        transition: box-shadow 0.15s;
-      }
-
-      .feature-card:hover { box-shadow: 0 2px 16px rgba(107, 62, 46, 0.08); }
-
-      .feature-card h3 {
-        font-size: 18px;
-        font-weight: 700;
-        color: var(--wood);
-        font-family: Georgia, "Times New Roman", serif;
-        margin-bottom: 8px;
-      }
-
-      .feature-card p { font-size: 14px; color: var(--ink-light); line-height: 1.7; }
-
-      /* Download */
-      #download {
-        padding: 72px 0;
-        border-top: 2px solid var(--border);
-        text-align: center;
-      }
-
-      #download h2 {
-        font-size: 28px;
-        font-weight: 700;
-        color: var(--wood);
-        font-family: Georgia, "Times New Roman", serif;
-        margin-bottom: 12px;
-      }
-
-      #download .subtitle {
-        font-size: 15px;
-        color: var(--ink-light);
-        margin-bottom: 40px;
-      }
-
-      .download-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 16px;
-        max-width: 880px;
-        margin: 0 auto 32px;
-      }
-
-      .download-card {
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 0;
-        padding: 28px 20px;
-        text-align: center;
-        transition: border-color 0.15s, box-shadow 0.15s;
-      }
-
-      .download-card:hover {
-        border-color: var(--blue);
-        box-shadow: 0 2px 16px rgba(59, 91, 165, 0.1);
-      }
-
-      .download-card .os-icon {
-        font-size: 32px;
-        margin-bottom: 12px;
-        display: block;
-      }
-
-      .download-card h3 {
-        font-size: 18px;
-        font-weight: 700;
-        color: var(--wood);
-        font-family: Georgia, "Times New Roman", serif;
-        margin-bottom: 6px;
-      }
-
-      .download-card .os-desc {
-        font-size: 13px;
-        color: var(--ink-light);
-        margin-bottom: 20px;
-      }
-
-      .download-card .btn { font-size: 14px; padding: 10px 24px; }
-
-      .dl-note {
-        font-size: 13px;
-        color: var(--ink-light);
-      }
-
-      .dl-note a { font-weight: 500; }
-
-      .dl-button[data-ready="false"] {
-        opacity: 0.5;
-        pointer-events: none;
-      }
-
-      /* Footer */
-      footer {
-        border-top: 2px solid var(--border);
-        padding: 32px 0;
-        text-align: center;
-      }
-
-      footer p {
-        font-size: 13px;
-        color: var(--ink-light);
-      }
-
-      footer .footer-links {
-        display: flex;
-        justify-content: center;
-        gap: 24px;
-        margin-bottom: 12px;
-      }
-
-      footer .footer-links a { font-size: 13px; font-weight: 500; }
-
-      @media (max-width: 720px) {
-        #hero h1 { font-size: 28px; }
-        .mockup-sidebar, .mockup-right { display: none; }
-        .btn-group { flex-direction: column; align-items: center; }
-        header .container { flex-direction: column; gap: 12px; }
-        .download-grid { grid-template-columns: 1fr; }
-      }
-    </style>
-  </head>
-
-  <body>
-    <header>
-      <div class="container">
-        <a href="." class="logo">
-          <img src="kaeda_logo.png" alt="Kaeda" />
-          Kaeda
-        </a>
-        <nav>
-          <a href="#features">Features</a>
-          <a href="#download">Download</a>
-          <a href="https://github.com/barroqt/kaeda" target="_blank" rel="noopener">GitHub</a>
-        </nav>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kaeda — Korean Sentence Mining for the Modern Learner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Noto+Serif+KR:wght@300;400;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      /* Palette 1: #E7A8B2 #3B5BA5 #E8DAB2 #6B3E2E #A63D5E */
+      --bg: #15171e; 
+      --surface: #1e212b;
+      --indigo: #3B5BA5;
+      --pink: #E7A8B2;
+      --gold: #E8DAB2;
+      --brown: #6B3E2E;
+      --crimson: #A63D5E;
+      --text: #f4f1ea; 
+      --muted: #a1a1aa;
+      --border: rgba(232, 218, 178, 0.1);
+    }
+
+    html { scroll-behavior: smooth; }
+    body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; line-height: 1.6; overflow-x: hidden; }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: rgba(21, 23, 30, 0.95); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 4rem; display: flex; align-items: center; justify-content: space-between; height: 70px;
+    }
+    .logo { font-family: 'Playfair Display', serif; font-size: 1.5rem; font-weight: 700; color: var(--gold); }
+    .logo span { color: var(--crimson); }
+    nav ul { list-style: none; display: flex; gap: 2.5rem; }
+    nav ul a { text-decoration: none; color: var(--gold); font-size: 0.9rem; opacity: 0.8; transition: 0.2s; }
+    nav ul a:hover { opacity: 1; color: var(--pink); }
+    .nav-cta {
+      background: var(--crimson); color: white; border: none; padding: 0.6rem 1.4rem;
+      border-radius: 4px; font-weight: 600; cursor: pointer; transition: 0.2s;
+    }
+    .nav-cta:hover { background: var(--pink); color: var(--brown); }
+
+    /* ── HERO ── */
+    .hero {
+      min-height: 90vh; display: flex; align-items: center; justify-content: center;
+      padding: 8rem 4rem 4rem; position: relative;
+      background: 
+        radial-gradient(circle at 10% 20%, rgba(166, 61, 94, 0.1) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(59, 91, 165, 0.1) 0%, transparent 40%);
+    }
+    .hero-inner { max-width: 1200px; display: grid; grid-template-columns: 1fr 1fr; gap: 5rem; align-items: center; }
+    .hero-label {
+      display: inline-block; font-family: 'Noto Serif KR', serif; font-size: 0.75rem;
+      color: var(--gold); border: 1px solid var(--gold); padding: 0.3rem 0.8rem;
+      margin-bottom: 1.5rem; letter-spacing: 0.1em; text-transform: uppercase;
+    }
+    h1 {
+      font-family: 'Playfair Display', serif; font-size: clamp(2.8rem, 5vw, 4rem);
+      line-height: 1.1; margin-bottom: 1.5rem; color: var(--text);
+    }
+    h1 em { font-style: italic; color: var(--pink); }
+    .hero-p { font-size: 1.1rem; color: var(--muted); margin-bottom: 2.5rem; max-width: 500px; }
+    .hero-actions { display: flex; gap: 1rem; }
+    .btn-primary {
+      background: var(--indigo); color: white; padding: 0.9rem 2rem;
+      border: none; border-radius: 4px; font-weight: 600; cursor: pointer; transition: 0.2s;
+    }
+    .btn-secondary {
+      background: transparent; color: var(--gold); border: 1px solid var(--gold);
+      padding: 0.9rem 2rem; border-radius: 4px; cursor: pointer; transition: 0.2s;
+    }
+
+    /* ── APP WINDOW ── */
+    .app-window {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,0.5);
+    }
+    .app-bar {
+      background: var(--brown); padding: 0.8rem 1.2rem; display: flex; align-items: center;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--gold); opacity: 0.4; margin-right: 6px; }
+    .app-title { font-size: 0.75rem; color: var(--gold); margin-left: 10px; opacity: 0.7; }
+    .app-body { display: grid; grid-template-columns: 180px 1fr 200px; height: 380px; }
+    .app-col { border-right: 1px solid var(--border); overflow-y: auto; }
+    .app-col-hdr { padding: 0.7rem 1rem; font-size: 0.65rem; color: var(--gold); text-transform: uppercase; border-bottom: 1px solid var(--border); }
+    .sub-item { padding: 0.7rem 1rem; font-size: 0.8rem; border-bottom: 1px solid var(--border); cursor: pointer; opacity: 0.6; }
+    .sub-item.active { background: rgba(59, 91, 165, 0.15); opacity: 1; border-left: 3px solid var(--indigo); }
+    .sub-item .kr { font-family: 'Noto Serif KR', serif; display: block; }
+    
+    .main-view { padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+    .sentence { font-family: 'Noto Serif KR', serif; font-size: 1.4rem; color: var(--gold); }
+    .sentence .hl { color: var(--crimson); border-bottom: 2px solid var(--crimson); }
+    .replay-btn { align-self: flex-start; background: var(--indigo); color: white; border: none; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.75rem; cursor: pointer; }
+
+    .card-view { padding: 1rem; display: flex; flex-direction: column; gap: 0.8rem; }
+    .field { background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 0.6rem; border-radius: 4px; }
+    .label { font-size: 0.6rem; color: var(--muted); text-transform: uppercase; margin-bottom: 0.2rem; }
+    .val { font-size: 0.8rem; }
+    .val.kr { font-family: 'Noto Serif KR', serif; color: var(--pink); }
+    .save-btn { margin-top: auto; background: var(--crimson); color: white; border: none; padding: 0.6rem; border-radius: 4px; font-weight: 600; cursor: pointer; }
+
+    /* ── PROBLEM SECTION ── */
+    .section { padding: 8rem 4rem; max-width: 1200px; margin: 0 auto; }
+    .section-label { font-size: 0.8rem; color: var(--crimson); font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1rem; display: block; }
+    .section-title { font-family: 'Playfair Display', serif; font-size: 3rem; color: var(--gold); margin-bottom: 1.5rem; }
+    .section-p { font-size: 1.1rem; color: var(--muted); max-width: 700px; margin-bottom: 4rem; }
+    
+    .problem-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem; }
+    .problem-card { background: var(--surface); border: 1px solid var(--border); padding: 2.5rem; border-radius: 8px; }
+    .problem-card h3 { font-family: 'Playfair Display', serif; font-size: 1.4rem; color: var(--pink); margin-bottom: 1rem; }
+    .problem-card p { font-size: 0.95rem; color: var(--muted); }
+
+    /* ── FEATURES GRID ── */
+    .features-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2rem; }
+    .feature-item { display: flex; gap: 1.5rem; padding: 2rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+    .feature-icon { font-size: 1.8rem; color: var(--indigo); flex-shrink: 0; }
+    .feature-item h3 { font-family: 'Playfair Display', serif; font-size: 1.2rem; color: var(--gold); margin-bottom: 0.5rem; }
+    .feature-item p { font-size: 0.9rem; color: var(--muted); }
+
+    /* ── WORKFLOW ── */
+    .workflow-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.5rem; }
+    .step { text-align: center; }
+    .step-num { width: 50px; height: 50px; border-radius: 50%; border: 2px solid var(--indigo); color: var(--indigo); display: flex; align-items: center; justify-content: center; font-weight: 700; margin: 0 auto 1.5rem; font-family: 'Playfair Display', serif; font-size: 1.2rem; }
+    .step h3 { font-family: 'Playfair Display', serif; font-size: 1.1rem; color: var(--gold); margin-bottom: 0.8rem; }
+    .step p { font-size: 0.85rem; color: var(--muted); }
+
+    /* ── FOOTER ── */
+    footer { border-top: 1px solid var(--border); padding: 4rem; background: #0d0e12; color: var(--gold); }
+    .footer-inner { max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; }
+    .footer-logo { font-family: 'Playfair Display', serif; font-size: 1.5rem; font-weight: 700; }
+    .footer-links { display: flex; gap: 3rem; font-size: 0.9rem; }
+    .footer-links a { color: var(--gold); text-decoration: none; opacity: 0.6; transition: 0.2s; }
+    .footer-links a:hover { opacity: 1; color: var(--pink); }
+
+    @media (max-width: 1000px) {
+      .hero-inner { grid-template-columns: 1fr; text-align: center; }
+      .hero-p { margin-left: auto; margin-right: auto; }
+      .hero-actions { justify-content: center; }
+      .app-body { grid-template-columns: 1fr; height: auto; }
+      .app-col:not(:nth-child(2)) { display: none; }
+      .problem-grid, .features-grid, .workflow-steps { grid-template-columns: 1fr; }
+      .section { padding: 4rem 2rem; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">Kaeda<span>.</span></div>
+  <ul>
+    <li><a href="#problem">Why Kaeda</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#workflow">Workflow</a></li>
+  </ul>
+  <button class="nav-cta">Download Free</button>
+</nav>
+
+<section class="hero">
+  <div class="hero-inner">
+    <div>
+      <h1>Mine Korean with <em>Unmatched</em> Clarity.</h1>
+      <p class="hero-p">
+        The ultimate sentence mining companion for Korean learners. Turn every video into a structured study session with precision.
+      </p>
+      <div class="hero-actions">
+        <button class="btn-primary">Download v1.0</button>
+        <button class="btn-secondary">View Documentation</button>
       </div>
-    </header>
+    </div>
 
-    <main>
-      <!-- Hero -->
-      <section id="hero">
-        <div class="container">
-          <h1>Korean sentence mining, made fast.</h1>
-          <p class="tagline">
-            Kaeda turns local Korean video and SRT subtitles into Anki‑ready flashcards.
-            Navigate with your keyboard, select words, and export — all in one desktop app.
-          </p>
-          <div class="btn-group">
-            <a href="#download" class="btn btn-primary">Download Kaeda</a>
-            <a href="https://github.com/barroqt/kaeda" target="_blank" rel="noopener" class="btn btn-secondary">View on GitHub</a>
-          </div>
-        </div>
-      </section>
-
-      <!-- Features -->
-      <section id="features">
-        <div class="container">
-          <h2>Why Kaeda?</h2>
-          <div class="feature-grid">
-            <div class="feature-card">
-              <h3>Keyboard‑driven workflow</h3>
-              <p>
-                Navigate subtitles, select target words, save cards, and mark lines known without lifting your hands from the keyboard.
-              </p>
-            </div>
-            <div class="feature-card">
-              <h3>Smart word suggestions</h3>
-              <p>
-                Built‑in Korean dictionary auto‑fills the target word and
-                explanation. Editable, so you stay in control.
-              </p>
-            </div>
-            <div class="feature-card">
-              <h3>Anki‑ready export</h3>
-              <p>
-                Export your session cards as a TSV file that imports directly into Anki.
-              </p>
-            </div>
-            <div class="feature-card">
-              <h3>Local &amp; private</h3>
-              <p>
-                Everything runs on your machine. No accounts, no cloud uploads. Your
-                mining data stays yours.
-              </p>
-            </div>
-            <div class="feature-card">
-              <h3>Known‑line persistence</h3>
-              <p>
-                Mark subtitles as known and they stay dimmed across sessions. Focus on
-                new material, not déjà vu.
-              </p>
-            </div>
-            <div class="feature-card">
-              <h3>Line‑level audio replay</h3>
-              <p>
-                Replay the current subtitle with one click or hotkey. The video seeks to
-                the right moment and plays just the line.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Download -->
-      <section id="download">
-        <div class="container">
-          <h2>Download</h2>
-          <p class="subtitle">Version <span id="release-version">—</span> &mdash; available for macOS, Windows, and Linux.</p>
-
-          <div class="download-grid" id="download-grid">
-            <div class="download-card" data-platform="macos">
-              <span class="os-icon">&#x1F5A5;&#xFE0F;</span>
-              <h3>macOS</h3>
-              <p class="os-desc">macOS 11+</p>
-              <div class="btn-group-vertical">
-                <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-primary dl-button" data-target="aarch64-apple-darwin" data-ready="false">
-                  Apple Silicon
-                </a>
-                <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-secondary dl-button" data-target="x86_64-apple-darwin" data-ready="false">
-                  Intel
-                </a>
-              </div>
-            </div>
-
-            <div class="download-card" data-platform="windows">
-              <span class="os-icon">&#x1F4BB;</span>
-              <h3>Windows</h3>
-              <p class="os-desc">Windows 10 / 11</p>
-              <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-primary dl-button" data-target="x86_64-pc-windows-msvc" data-ready="false">
-                Download
-              </a>
-            </div>
-
-            <div class="download-card" data-platform="linux">
-              <span class="os-icon">&#x1F427;</span>
-              <h3>Linux</h3>
-              <p class="os-desc">deb / AppImage</p>
-              <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener" class="btn btn-secondary dl-button" data-target="x86_64-unknown-linux-gnu" data-ready="false">
-                Download
-              </a>
-            </div>
-          </div>
-
-          <p class="dl-note">
-            All downloads are hosted on
-            <a href="https://github.com/barroqt/kaeda/releases" target="_blank" rel="noopener">GitHub Releases</a>.
-            See the <a href="https://github.com/barroqt/kaeda/releases/latest" target="_blank" rel="noopener">latest release</a>
-            for checksums and changelogs.
-          </p>
-        </div>
-      </section>
-    </main>
-
-    <script>
-      (function() {
-        var BASE = 'https://github.com/barroqt/kaeda/releases/download';
-
-        function loadConfig() {
-          var xhr = new XMLHttpRequest();
-          xhr.open('GET', 'release.json', true);
-          xhr.onload = function() {
-            if (xhr.status >= 200 && xhr.status < 400) {
-              try {
-                var cfg = JSON.parse(xhr.responseText);
-                applyConfig(cfg);
-              } catch(e) {}
-            }
-          };
-          xhr.send();
-        }
-
-        function applyConfig(cfg) {
-          var ver = document.getElementById('release-version');
-          if (ver) ver.textContent = 'v' + cfg.version;
-
-          var buttons = document.querySelectorAll('.dl-button');
-          for (var i = 0; i < buttons.length; i++) {
-            var target = buttons[i].getAttribute('data-target');
-            if (!target) continue;
-
-            var assetName = 'kaeda-v' + cfg.version + '-' + target + '.tar.gz';
-            var downloadUrl = BASE + '/' + cfg.tag + '/' + assetName;
-
-            buttons[i].setAttribute('href', downloadUrl);
-            buttons[i].setAttribute('data-ready', 'true');
-          }
-        }
-
-        loadConfig();
-      })();
-    </script>
-
-    <footer>
-      <div class="container">
-        <div class="footer-links">
-          <a href="https://github.com/barroqt/kaeda" target="_blank" rel="noopener">GitHub</a>
-          <a href="https://github.com/barroqt/kaeda/issues" target="_blank" rel="noopener">Issues</a>
-          <a href="https://github.com/barroqt/kaeda/releases" target="_blank" rel="noopener">Releases</a>
-        </div>
-        <p>Kaeda is a free and open source software.</p>
+    <div class="app-window">
+      <div class="app-bar">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        <span class="app-title">Kaeda — Study_Session_01.mp4</span>
       </div>
-    </footer>
-  </body>
+      <div class="app-body">
+        <div class="app-col">
+          <div class="app-col-hdr">Subtitles</div>
+          <div class="sub-item active">
+            <span class="kr">이 동네가 마음에 들어요</span>
+          </div>
+          <div class="sub-item">
+            <span class="kr">같이 밥 먹을래요?</span>
+          </div>
+          <div class="sub-item">
+            <span class="kr">저는 바쁜데요</span>
+          </div>
+        </div>
+        <div class="app-col main-view">
+          <div class="sentence">이 동네가 <span class="hl">마음에 들어요</span></div>
+          <button class="replay-btn">🔊 Replay Audio</button>
+        </div>
+        <div class="app-col card-view">
+          <div class="app-col-hdr">Card Preview</div>
+          <div class="field">
+            <div class="label">Target</div>
+            <div class="val kr">마음에 들다</div>
+          </div>
+          <div class="field">
+            <div class="label">Meaning</div>
+            <div class="val">to like; to take a liking to</div>
+          </div>
+          <button class="save-btn">Save Card</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="problem" style="background: #1a1c24;">
+  <span class="section-label">The Problem</span>
+  <h2 class="section-title">Current mining workflows are broken.</h2>
+  <p class="section-p">
+    Pausing videos, copying text, and manually assembling Anki cards breaks immersion. Most tools are optimized for Japanese, leaving Korean learners with clumsy, brittle scripts.
+  </p>
+  <div class="problem-grid">
+    <div class="problem-card">
+      <h3>Broken Immersion</h3>
+      <p>Pause video → copy text → open translation app → copy translation → open Anki → assemble card → paste translation. Repeat 50 times.</p>
+    </div>
+    <div class="problem-card">
+      <h3>Language Mismatch</h3>
+      <p>Generic tools fail to handle Korean's complex morphology, leading to messy cards.</p>
+    </div>
+    <div class="problem-card">
+      <h3>Friction Overload</h3>
+      <p>The friction is so high that most learners give up on active mining entirely, even though they know it works.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="features">
+  <span class="section-label">Core Features</span>
+  <h2 class="section-title">Everything you need in one place.</h2>
+  <div class="features-grid">
+    <div class="feature-item">
+      <div class="feature-icon">📂</div>
+      <div>
+        <h3>Video + SRT in seconds</h3>
+        <p>Load any local MP4 and SRT file instantly. No complex setup, just your content.</p>
+      </div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">⌨️</div>
+      <div>
+        <h3>Keyboard workflow</h3>
+        <p>You have the option to do an entire mining session without touching you mouse.</p>
+      </div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">🏮</div>
+      <div>
+        <h3>In-app translation</h3>
+        <p>Click any word and get definition auto-filled. Edit freely before saving.</p>
+      </div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">🔊</div>
+      <div>
+        <h3>Audio replay</h3>
+        <p>Replay the exact audio clip for any subtitle line.</p>
+      </div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">🧠</div>
+      <div>
+        <h3>Known-word tracking</h3>
+        <p>Mark lines as Known and Kaeda remembers them. Future sessions for the same file skip what you've already learned.</p>
+      </div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">📤</div>
+      <div>
+        <h3>Anki TSV Export</h3>
+        <p>One-click export of your entire session. Drag the file into Anki and your new cards are ready.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="workflow" style="background: #1a1c24;">
+  <span class="section-label">The Workflow</span>
+  <h2 class="section-title">From video to Anki in seconds.</h2>
+  <div class="workflow-steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <h3>Load Content</h3>
+      <p>Open your local video and matching subtitle file.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <h3>Browse subtitles</h3>
+      <p>Scroll through every line. Replay audio. Pick sentences worth mining.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <h3>Craft your card</h3>
+      <p>Get the definition auto-filled. Edit if needed.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <h3>Export & Study</h3>
+      <p>Save your session cards and export a TSV file ready for Anki import.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-inner">
+    <div class="footer-logo">Kaeda</div>
+    <div class="footer-links">
+      <a href="#">GitHub</a>
+      <a href="#">Documentation</a>
+      <a href="#">Discord</a>
+      <a href="#">Privacy</a>
+    </div>
+    <div style="font-size: 0.8rem; opacity: 0.5;">© 2025 Kaeda</div>
+  </div>
+</footer>
+
+</body>
 </html>
