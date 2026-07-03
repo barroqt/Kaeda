@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quick Start — Kaeda</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Noto+Serif+KR:wght@300;400;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #15171e; --surface: #1e212b; --indigo: #3B5BA5;
+      --pink: #E7A8B2; --gold: #E8DAB2; --brown: #6B3E2E;
+      --crimson: #A63D5E; --text: #f4f1ea; --muted: #a1a1aa;
+      --border: rgba(232, 218, 178, 0.1);
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: 'Inter', sans-serif; line-height: 1.7;
+      padding: 0; margin: 0;
+    }
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: rgba(21, 23, 30, 0.95); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 4rem; display: flex; align-items: center;
+      justify-content: space-between; height: 70px;
+    }
+    .logo { font-family: 'Playfair Display', serif; font-size: 1.5rem; font-weight: 700; color: var(--gold); }
+    .logo span { color: var(--crimson); }
+    .logo-kr { font-family: 'Noto Serif KR', serif; font-size: 0.85rem; color: var(--muted); margin-left: 0.5rem; font-weight: 400; }
+    nav a { text-decoration: none; color: var(--gold); }
+    nav ul { list-style: none; display: flex; gap: 2.5rem; }
+    nav ul a { font-size: 0.9rem; opacity: 0.8; transition: 0.2s; }
+    nav ul a:hover { opacity: 1; color: var(--pink); }
+    .content {
+      max-width: 800px; margin: 0 auto; padding: 7rem 2rem 4rem;
+    }
+    h1 {
+      font-family: 'Playfair Display', serif; font-size: 2.8rem;
+      color: var(--gold); margin-bottom: 0.5rem;
+    }
+    .subtitle { color: var(--muted); font-size: 1.1rem; margin-bottom: 3rem; }
+    h2 {
+      font-family: 'Playfair Display', serif; font-size: 1.6rem;
+      color: var(--pink); margin: 2.5rem 0 1rem;
+      padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);
+    }
+    h3 { font-size: 1.1rem; color: var(--gold); margin: 1.5rem 0 0.5rem; }
+    p { margin-bottom: 1rem; color: var(--muted); }
+    ol, ul { margin: 1rem 0; padding-left: 1.5rem; color: var(--muted); }
+    li { margin-bottom: 0.5rem; }
+    code {
+      background: var(--surface); padding: 0.15rem 0.4rem;
+      border-radius: 3px; font-size: 0.9em; color: var(--pink);
+    }
+    strong { color: var(--text); }
+    table {
+      width: 100%; border-collapse: collapse; margin: 1.5rem 0;
+      font-size: 0.9rem;
+    }
+    th, td { padding: 0.6rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--gold); font-weight: 600; background: var(--surface); }
+    td { color: var(--muted); }
+    blockquote {
+      border-left: 3px solid var(--indigo); padding: 0.8rem 1.2rem;
+      margin: 1.5rem 0; background: var(--surface); border-radius: 0 6px 6px 0;
+      color: var(--muted);
+    }
+    hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+    .back-link {
+      display: inline-block; margin-bottom: 2rem; color: var(--indigo);
+      text-decoration: none; font-size: 0.9rem;
+    }
+    .back-link:hover { color: var(--pink); }
+    footer {
+      border-top: 1px solid var(--border); padding: 3rem 4rem;
+      background: #0d0e12; text-align: center; color: var(--gold); font-size: 0.85rem;
+    }
+    footer a { color: var(--gold); text-decoration: none; opacity: 0.6; }
+    footer a:hover { opacity: 1; color: var(--pink); }
+    @media (max-width: 700px) {
+      nav { padding: 0 1.5rem; }
+      nav ul { gap: 1.2rem; }
+      .content { padding: 6rem 1.5rem 2rem; }
+      h1 { font-size: 2rem; }
+    }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/"><div class="logo">Kaeda<span>.</span> <span class="logo-kr">개다</span></div></a>
+  <ul>
+    <li><a href="/">Home</a></li>
+    <li><a href="quickstart.html">Quick Start</a></li>
+    <li><a href="changelog.html">Changelog</a></li>
+  </ul>
+</nav>
+
+<div class="content">
+  <a href="/" class="back-link">&larr; Back to Kaeda</a>
+  <h1>Quick Start</h1>
+  <p class="subtitle">From video to Anki in minutes.</p>
+
+  <h2>1. Install Kaeda</h2>
+  <p><strong>macOS</strong> — Download the archive for your chip (Apple Silicon or Intel), extract, and drag <code>Kaeda.app</code> to Applications.</p>
+  <p><strong>Windows</strong> — Download the archive, extract, and run <code>Kaeda.exe</code>.</p>
+  <p><strong>Linux</strong> — Download the archive, extract, and run <code>./kaeda</code>.</p>
+
+  <h2>2. Open a video and subtitle file</h2>
+  <ol>
+    <li>Click <strong>Open Video</strong> and select an <code>.mp4</code> or <code>.mkv</code> file.</li>
+    <li>Click <strong>Open Subtitles</strong> and select the matching <code>.srt</code> file.</li>
+    <li>The subtitle list appears on the left. The video appears in the center.</li>
+  </ol>
+  <blockquote>If your video has embedded subtitles, use <strong>File → Open Video with Embedded Subtitles</strong> instead.</blockquote>
+
+  <h2>3. Navigate subtitles and select lines</h2>
+  <p>Use the keyboard or mouse to move through subtitles:</p>
+  <table>
+    <tr><th>Shortcut</th><th>Action</th></tr>
+    <tr><td><code>W</code> / <code>S</code></td><td>Previous / next subtitle</td></tr>
+    <tr><td><code>A</code> / <code>D</code></td><td>Previous / next word</td></tr>
+    <tr><td><code>Space</code></td><td>Play / pause video</td></tr>
+    <tr><td><code>K</code></td><td>Mark the current line as known</td></tr>
+    <tr><td><code>R</code></td><td>Replay current subtitle audio</td></tr>
+  </table>
+  <p>Clicking a subtitle in the list seeks the video to that line and makes it the current selection.</p>
+
+  <h2>4. Create cards</h2>
+  <ol>
+    <li>Navigate to a subtitle you want to mine.</li>
+    <li>Click a word in the sentence to select it as the <strong>target</strong>.</li>
+    <li>A dictionary lookup runs automatically — the definition appears in the card preview panel.</li>
+    <li>Edit the explanation or add notes if desired.</li>
+    <li>Press <strong>Cmd+Enter</strong> or click <strong>Save Card</strong>.</li>
+  </ol>
+
+  <h2>5. Export your deck</h2>
+  <p>Click <strong>Export</strong> and choose a location. A <code>.tsv</code> file is written with three columns: <code>Target</code>, <code>Sentence</code>, <code>Explanation</code>.</p>
+
+  <h2>6. Import into Anki</h2>
+  <ol>
+    <li>Open Anki and go to <strong>File → Import</strong>.</li>
+    <li>Select the exported <code>.tsv</code> file.</li>
+    <li>Set the field mapping: Field 1 → Target, Field 2 → Sentence, Field 3 → Explanation.</li>
+    <li>Set the deck and note type, then click <strong>Import</strong>.</li>
+  </ol>
+
+  <h2>Keyboard shortcuts reference</h2>
+  <table>
+    <tr><th>Key</th><th>Action</th></tr>
+    <tr><td><code>W</code> / <code>S</code></td><td>Previous / next subtitle</td></tr>
+    <tr><td><code>A</code> / <code>D</code></td><td>Previous / next word token</td></tr>
+    <tr><td><code>Space</code></td><td>Toggle video play / pause</td></tr>
+    <tr><td><code>&larr;</code> / <code>&rarr;</code></td><td>Seek video back / forward 15 s</td></tr>
+    <tr><td><code>&uarr;</code> / <code>&darr;</code></td><td>Volume up / down</td></tr>
+    <tr><td><code>M</code></td><td>Toggle mute</td></tr>
+    <tr><td><code>R</code></td><td>Replay current line</td></tr>
+    <tr><td><code>K</code></td><td>Mark line known</td></tr>
+    <tr><td><code>Cmd/Ctrl+Enter</code></td><td>Save card</td></tr>
+    <tr><td><code>Cmd/Ctrl+F</code></td><td>Search subtitles</td></tr>
+    <tr><td><code>Esc</code></td><td>Clear search</td></tr>
+  </table>
+
+  <h2>Tips</h2>
+  <p><strong>Auto-translation</strong> — Set up a DeepL API key in Settings to get automatic translations for each subtitle span.</p>
+  <p><strong>Known lines</strong> — Marking a line as known dims it in the subtitle list and hides it in future sessions for the same file.</p>
+  <p><strong>Multiple decks</strong> — Create and switch between decks from the deck selector in the toolbar.</p>
+</div>
+
+<footer>
+  <a href="https://github.com/barroqt/kaeda">GitHub</a> &middot;
+  <a href="/">Kaeda</a>
+</footer>
+</body>
+</html>

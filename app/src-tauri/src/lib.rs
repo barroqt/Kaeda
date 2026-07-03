@@ -974,6 +974,11 @@ pub struct AppVersionInfo {
 }
 
 #[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    webbrowser::open(&url).map_err(|e| format!("failed to open URL: {e}"))
+}
+
+#[tauri::command]
 fn get_app_version() -> AppVersionInfo {
     AppVersionInfo {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -1063,6 +1068,7 @@ pub fn run() {
             rename_deck,
             delete_deck,
             get_app_version,
+            open_url,
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|err| {

@@ -734,6 +734,7 @@ export default function App() {
           </button>
           <button onClick={openSettings}>Settings</button>
           <button onClick={openAbout}>About</button>
+          <button onClick={() => invoke("open_url", { url: "https://kaeda.app/quickstart.html" })}>Quick Start</button>
         </div>
         {current && (
           <div id="session-info">

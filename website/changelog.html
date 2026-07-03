@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Changelog — Kaeda</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Noto+Serif+KR:wght@300;400;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #15171e; --surface: #1e212b; --indigo: #3B5BA5;
+      --pink: #E7A8B2; --gold: #E8DAB2; --brown: #6B3E2E;
+      --crimson: #A63D5E; --text: #f4f1ea; --muted: #a1a1aa;
+      --border: rgba(232, 218, 178, 0.1);
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: 'Inter', sans-serif; line-height: 1.7;
+      padding: 0; margin: 0;
+    }
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: rgba(21, 23, 30, 0.95); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 4rem; display: flex; align-items: center;
+      justify-content: space-between; height: 70px;
+    }
+    .logo { font-family: 'Playfair Display', serif; font-size: 1.5rem; font-weight: 700; color: var(--gold); }
+    .logo span { color: var(--crimson); }
+    .logo-kr { font-family: 'Noto Serif KR', serif; font-size: 0.85rem; color: var(--muted); margin-left: 0.5rem; font-weight: 400; }
+    nav a { text-decoration: none; color: var(--gold); }
+    nav ul { list-style: none; display: flex; gap: 2.5rem; }
+    nav ul a { font-size: 0.9rem; opacity: 0.8; transition: 0.2s; }
+    nav ul a:hover { opacity: 1; color: var(--pink); }
+    .content {
+      max-width: 800px; margin: 0 auto; padding: 7rem 2rem 4rem;
+    }
+    h1 {
+      font-family: 'Playfair Display', serif; font-size: 2.8rem;
+      color: var(--gold); margin-bottom: 0.5rem;
+    }
+    .subtitle { color: var(--muted); font-size: 1.1rem; margin-bottom: 3rem; }
+    .release { margin: 2.5rem 0; padding: 1.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+    .release-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1rem; }
+    .release-version { font-family: 'Playfair Display', serif; font-size: 1.4rem; color: var(--gold); }
+    .release-date { color: var(--muted); font-size: 0.85rem; }
+    .release-tag {
+      display: inline-block; background: var(--indigo); color: white;
+      font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 3px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    ul { margin: 0.8rem 0; padding-left: 1.5rem; }
+    li { margin-bottom: 0.4rem; color: var(--muted); line-height: 1.6; }
+    li strong { color: var(--text); }
+    hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+    .back-link {
+      display: inline-block; margin-bottom: 2rem; color: var(--indigo);
+      text-decoration: none; font-size: 0.9rem;
+    }
+    .back-link:hover { color: var(--pink); }
+    footer {
+      border-top: 1px solid var(--border); padding: 3rem 4rem;
+      background: #0d0e12; text-align: center; color: var(--gold); font-size: 0.85rem;
+    }
+    footer a { color: var(--gold); text-decoration: none; opacity: 0.6; }
+    footer a:hover { opacity: 1; color: var(--pink); }
+    @media (max-width: 700px) {
+      nav { padding: 0 1.5rem; }
+      nav ul { gap: 1.2rem; }
+      .content { padding: 6rem 1.5rem 2rem; }
+      h1 { font-size: 2rem; }
+    }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/"><div class="logo">Kaeda<span>.</span> <span class="logo-kr">개다</span></div></a>
+  <ul>
+    <li><a href="/">Home</a></li>
+    <li><a href="quickstart.html">Quick Start</a></li>
+    <li><a href="changelog.html">Changelog</a></li>
+  </ul>
+</nav>
+
+<div class="content">
+  <a href="/" class="back-link">&larr; Back to Kaeda</a>
+  <h1>Changelog</h1>
+  <p class="subtitle">Notable changes to Kaeda across releases.</p>
+
+  <div class="release">
+    <div class="release-header">
+      <span class="release-version">0.1.0</span>
+      <span class="release-date">TBD</span>
+    </div>
+    <span class="release-tag">First public release</span>
+    <ul>
+      <li><strong>Core mining workflow</strong> — Load video + SRT, navigate subtitles, select words, save cards to a session.</li>
+      <li><strong>Korean tokenization</strong> — Click any word to select it as the card target; automatic morphological analysis.</li>
+      <li><strong>Dictionary lookup</strong> — Auto-filled explanations from built-in Korean dictionary.</li>
+      <li><strong>Card management</strong> — Create, edit, and delete cards per session.</li>
+      <li><strong>Deck system</strong> — Multiple decks with one active session.</li>
+      <li><strong>TSV export</strong> — One-click Anki-ready export.</li>
+      <li><strong>Known-line tracking</strong> — Persisted per file; dimmed in future sessions.</li>
+      <li><strong>Video player</strong> — Custom controls: play/pause, seek, speed, volume, mute.</li>
+      <li><strong>Subtitle search</strong> — Full-text search with keyboard navigation.</li>
+      <li><strong>Cross-platform builds</strong> — macOS (ARM + Intel), Windows, Linux.</li>
+    </ul>
+  </div>
+</div>
+
+<footer>
+  <a href="https://github.com/barroqt/kaeda">GitHub</a> &middot;
+  <a href="/">Kaeda</a>
+</footer>
+</body>
+</html>
