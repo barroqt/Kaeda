@@ -35,12 +35,19 @@
     }
     .logo { font-family: 'Playfair Display', serif; font-size: 1.5rem; font-weight: 700; color: var(--gold); }
     .logo span { color: var(--crimson); }
+    .logo-kr {
+      font-family: 'Noto Serif KR', serif;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-left: 0.5rem;
+      font-weight: 400;
+    }
     nav ul { list-style: none; display: flex; gap: 2.5rem; }
     nav ul a { text-decoration: none; color: var(--gold); font-size: 0.9rem; opacity: 0.8; transition: 0.2s; }
     nav ul a:hover { opacity: 1; color: var(--pink); }
     .nav-cta {
       background: var(--crimson); color: white; border: none; padding: 0.6rem 1.4rem;
-      border-radius: 4px; font-weight: 600; cursor: pointer; transition: 0.2s;
+      border-radius: 4px; font-weight: 600; cursor: pointer; transition: 0.2s; text-decoration: none;
     }
     .nav-cta:hover { background: var(--pink); color: var(--brown); }
 
@@ -67,11 +74,11 @@
     .hero-actions { display: flex; gap: 1rem; }
     .btn-primary {
       background: var(--indigo); color: white; padding: 0.9rem 2rem;
-      border: none; border-radius: 4px; font-weight: 600; cursor: pointer; transition: 0.2s;
+      border: none; border-radius: 4px; font-weight: 600; cursor: pointer; transition: 0.2s; text-decoration: none;
     }
     .btn-secondary {
       background: transparent; color: var(--gold); border: 1px solid var(--gold);
-      padding: 0.9rem 2rem; border-radius: 4px; cursor: pointer; transition: 0.2s;
+      padding: 0.9rem 2rem; border-radius: 4px; cursor: pointer; transition: 0.2s; text-decoration: none;
     }
 
     /* ── APP WINDOW ── */
@@ -128,6 +135,25 @@
     .step h3 { font-family: 'Playfair Display', serif; font-size: 1.1rem; color: var(--gold); margin-bottom: 0.8rem; }
     .step p { font-size: 0.85rem; color: var(--muted); }
 
+    /* ── DOWNLOAD SECTION ── */
+    .download-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem; margin-top: 2rem; }
+    .download-card {
+      background: var(--surface); border: 1px solid var(--border);
+      padding: 2.5rem; border-radius: 12px; text-align: center;
+      transition: 0.3s;
+    }
+    .download-card:hover { border-color: var(--pink); transform: translateY(-5px); }
+    .download-icon { font-size: 2.5rem; margin-bottom: 1.5rem; display: block; }
+    .download-card h3 { font-family: 'Playfair Display', serif; font-size: 1.5rem; color: var(--gold); margin-bottom: 1.5rem; }
+    .download-options { display: flex; flex-direction: column; gap: 0.75rem; }
+    .btn-download {
+      background: var(--indigo); color: white; padding: 0.75rem;
+      border-radius: 6px; font-size: 0.9rem; font-weight: 600;
+      text-decoration: none; transition: 0.2s;
+    }
+    .btn-download:hover { background: var(--crimson); }
+    .btn-download span { display: block; font-size: 0.7rem; opacity: 0.7; font-weight: 400; }
+
     /* ── FOOTER ── */
     footer { border-top: 1px solid var(--border); padding: 4rem; background: #0d0e12; color: var(--gold); }
     .footer-inner { max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; }
@@ -142,7 +168,7 @@
       .hero-actions { justify-content: center; }
       .app-body { grid-template-columns: 1fr; height: auto; }
       .app-col:not(:nth-child(2)) { display: none; }
-      .problem-grid, .features-grid, .workflow-steps { grid-template-columns: 1fr; }
+      .problem-grid, .features-grid, .workflow-steps, .download-grid { grid-template-columns: 1fr; }
       .section { padding: 4rem 2rem; }
     }
   </style>
@@ -150,13 +176,14 @@
 <body>
 
 <nav>
-  <div class="logo">Kaeda<span>.</span></div>
+  <div class="logo">Kaeda<span>.</span> <span class="logo-kr">개다</span></div>
   <ul>
     <li><a href="#problem">Why Kaeda</a></li>
     <li><a href="#features">Features</a></li>
     <li><a href="#workflow">Workflow</a></li>
+    <li><a href="#download">Download</a></li>
   </ul>
-  <button class="nav-cta">Download Free</button>
+  <a href="#download" class="nav-cta">Download Free</a>
 </nav>
 
 <section class="hero">
@@ -167,8 +194,8 @@
         The ultimate sentence mining companion for Korean learners. Turn every video into a structured study session with precision.
       </p>
       <div class="hero-actions">
-        <button class="btn-primary">Download v1.0</button>
-        <button class="btn-secondary">View Documentation</button>
+        <a href="#download" class="btn-primary">Download</a>
+        <a href="#" class="btn-secondary">View Documentation</a>
       </div>
     </div>
 
@@ -214,9 +241,6 @@
 <section class="section" id="problem" style="background: #1a1c24;">
   <span class="section-label">The Problem</span>
   <h2 class="section-title">Current mining workflows are broken.</h2>
-  <p class="section-p">
-    Pausing videos, copying text, and manually assembling Anki cards breaks immersion. Most tools are optimized for Japanese, leaving Korean learners with clumsy, brittle scripts.
-  </p>
   <div class="problem-grid">
     <div class="problem-card">
       <h3>Broken Immersion</h3>
@@ -309,16 +333,42 @@
   </div>
 </section>
 
+<section class="section" id="download">
+  <span class="section-label">Get Started</span>
+  <h2 class="section-title">Download Kaeda</h2>
+  <p class="section-p">Choose your platform and start mining today. Kaeda is free and open-source.</p>
+  
+  <div class="download-grid">
+    <div class="download-card">
+      <h3>macOS</h3>
+      <div class="download-options">
+        <a href="#" class="btn-download">Download for Apple Silicon</a>
+        <a href="#" class="btn-download">Download for Intel</a>
+      </div>
+    </div>
+    <div class="download-card">
+      <h3>Windows</h3>
+      <div class="download-options">
+        <a href="#" class="btn-download">Download for Windows</a>
+      </div>
+    </div>
+    <div class="download-card">
+      <h3>Linux</h3>
+      <div class="download-options">
+        <a href="#" class="btn-download">Download for Linux</a>
+      </div>
+    </div>
+  </div>
+</section>
+
 <footer>
   <div class="footer-inner">
     <div class="footer-logo">Kaeda</div>
     <div class="footer-links">
       <a href="#">GitHub</a>
       <a href="#">Documentation</a>
-      <a href="#">Discord</a>
-      <a href="#">Privacy</a>
     </div>
-    <div style="font-size: 0.8rem; opacity: 0.5;">© 2025 Kaeda</div>
+    <div style="font-size: 0.8rem; opacity: 0.5;">© 2026 Kaeda</div>
   </div>
 </footer>
 
