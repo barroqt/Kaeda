@@ -2,24 +2,22 @@
   "version": "0.2.0",
   "tag": "v0.2.0",
   "release_page": "https://github.com/barroqt/kaeda/releases/latest",
-  "platforms": [
-    {
-      "id": "macos",
-      "label": "macOS",
-      "desc": "macOS 11+",
-      "targets": ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+  "assets": {
+    "macos-arm": {
+      "label": "Apple Silicon",
+      "url": "https://github.com/barroqt/kaeda/releases/download/v0.2.0/kaeda-v0.2.0-aarch64-apple-darwin.tar.gz"
     },
-    {
-      "id": "windows",
+    "macos-intel": {
+      "label": "Intel",
+      "url": "https://github.com/barroqt/kaeda/releases/download/v0.2.0/kaeda-v0.2.0-x86_64-apple-darwin.tar.gz"
+    },
+    "windows": {
       "label": "Windows",
-      "desc": "Windows 10 / 11",
-      "target": "x86_64-pc-windows-msvc"
+      "url": "https://github.com/barroqt/kaeda/releases/download/v0.2.0/kaeda-v0.2.0-x86_64-pc-windows-msvc.tar.gz"
     },
-    {
-      "id": "linux",
+    "linux": {
       "label": "Linux",
-      "desc": "deb / AppImage",
-      "target": "x86_64-unknown-linux-gnu"
+      "url": "https://github.com/barroqt/kaeda/releases/download/v0.2.0/kaeda-v0.2.0-x86_64-unknown-linux-gnu.tar.gz"
     }
-  ]
+  }
 }

@@ -342,20 +342,20 @@
     <div class="download-card">
       <h3>macOS</h3>
       <div class="download-options">
-        <a href="#" class="btn-download">Download for Apple Silicon</a>
-        <a href="#" class="btn-download">Download for Intel</a>
+        <a href="#" data-asset="macos-arm" class="btn-download">Download for Apple Silicon</a>
+        <a href="#" data-asset="macos-intel" class="btn-download">Download for Intel</a>
       </div>
     </div>
     <div class="download-card">
       <h3>Windows</h3>
       <div class="download-options">
-        <a href="#" class="btn-download">Download for Windows</a>
+        <a href="#" data-asset="windows" class="btn-download">Download for Windows</a>
       </div>
     </div>
     <div class="download-card">
       <h3>Linux</h3>
       <div class="download-options">
-        <a href="#" class="btn-download">Download for Linux</a>
+        <a href="#" data-asset="linux" class="btn-download">Download for Linux</a>
       </div>
     </div>
   </div>
@@ -365,12 +365,29 @@
   <div class="footer-inner">
     <div class="footer-logo">Kaeda</div>
     <div class="footer-links">
-      <a href="#">GitHub</a>
+      <a href="https://github.com/barroqt/kaeda">GitHub</a>
       <a href="#">Documentation</a>
     </div>
     <div style="font-size: 0.8rem; opacity: 0.5;">© 2026 Kaeda</div>
   </div>
 </footer>
+
+<script>
+async function populateDownloads() {
+  try {
+    const res = await fetch('release.json');
+    const data = await res.json();
+    for (const [key, asset] of Object.entries(data.assets)) {
+      const btn = document.querySelector(`[data-asset="${key}"]`);
+      if (btn) btn.href = asset.url;
+    }
+  } catch {
+    const btn = document.querySelector('.btn-download');
+    if (btn) btn.href = 'https://github.com/barroqt/kaeda/releases/latest';
+  }
+}
+populateDownloads();
+</script>
 
 </body>
 </html>
