@@ -154,6 +154,23 @@
     .btn-download:hover { background: var(--crimson); }
     .btn-download span { display: block; font-size: 0.7rem; opacity: 0.7; font-weight: 400; }
 
+    /* ── CONTACT SECTION ── */
+    .contact-container { text-align: center; max-width: 800px; margin: 0 auto; }
+    .contact-container h2 { font-family: 'Playfair Display', serif; font-size: 3rem; color: var(--gold); margin-bottom: 1.5rem; }
+    .contact-container p { font-size: 1.1rem; color: var(--muted); margin-bottom: 4rem; }
+
+    .contact-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+    .contact-card {
+      background: var(--surface); border: 1px solid var(--border);
+      padding: 3rem 2rem; border-radius: 12px; transition: 0.3s;
+      text-decoration: none; display: flex; flex-direction: column; align-items: center; gap: 1rem;
+    }
+    .contact-card:hover { border-color: var(--pink); transform: translateY(-5px); background: #242836; }
+    .contact-card .icon { font-size: 2rem; color: var(--indigo); }
+    .contact-card h4 { font-family: 'Playfair Display', serif; font-size: 1.4rem; color: var(--gold); }
+    .contact-card span { color: var(--pink); font-weight: 600; font-size: 1.1rem; }
+    .contact-card p { font-size: 0.9rem; color: var(--muted); margin: 0; }
+
     /* ── FOOTER ── */
     footer { border-top: 1px solid var(--border); padding: 4rem; background: #0d0e12; color: var(--gold); }
     .footer-inner { max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; }
@@ -168,8 +185,9 @@
       .hero-actions { justify-content: center; }
       .app-body { grid-template-columns: 1fr; height: auto; }
       .app-col:not(:nth-child(2)) { display: none; }
-      .problem-grid, .features-grid, .workflow-steps, .download-grid { grid-template-columns: 1fr; }
+      .problem-grid, .features-grid, .workflow-steps, .download-grid, .contact-grid { grid-template-columns: 1fr; }
       .section { padding: 4rem 2rem; }
+      .contact-cards { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -182,8 +200,7 @@
     <li><a href="#features">Features</a></li>
     <li><a href="#workflow">Workflow</a></li>
     <li><a href="#download">Download</a></li>
-    <li><a href="quickstart.html">Docs</a></li>
-    <li><a href="changelog.html">Changelog</a></li>
+    <li><a href="#contact">Contact</a></li>
   </ul>
   <a href="#download" class="nav-cta">Download Free</a>
 </nav>
@@ -363,12 +380,38 @@
   </div>
 </section>
 
+<section class="section" id="contact" style="background: #1a1c24;">
+  <div class="contact-container">
+    <span class="section-label">Contact</span>
+    <h2>Let's talk.</h2>
+    <p>Have a question or feedback? Reach out directly or help us improve by reporting bugs.</p>
+    
+    <div class="contact-cards">
+      <a href="mailto:barroqt@gmail.com" class="contact-card">
+        <div class="icon">✉️</div>
+        <h4>Email Us</h4>
+        <p>For general inquiries and support</p>
+        <span>barroqt@gmail.com</span>
+      </a>
+      
+      <a href="https://github.com/barroqt/kaeda/issues" class="contact-card" target="_blank">
+        <div class="icon">🐛</div>
+        <h4>Report a Bug</h4>
+        <p>Found a glitch? Open an issue on GitHub</p>
+        <span>GitHub Issues &rarr;</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+
 <footer>
   <div class="footer-inner">
     <div class="footer-logo">Kaeda</div>
     <div class="footer-links">
       <a href="https://github.com/barroqt/kaeda">GitHub</a>
       <a href="quickstart.html">Documentation</a>
+      <a href="#contact">Contact</a>
     </div>
     <div style="font-size: 0.8rem; opacity: 0.5;">© 2026 Kaeda</div>
   </div>
