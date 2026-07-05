@@ -57,8 +57,6 @@ export default function App() {
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
   const [sessionError, setSessionError] = useState(null);
   const [toasts, setToasts] = useState([]);
-  const [aboutOpen, setAboutOpen] = useState(false);
-  const [aboutInfo, setAboutInfo] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searchHighlightIndex, setSearchHighlightIndex] = useState(-1);
@@ -476,17 +474,6 @@ export default function App() {
     }, durationMs);
   }
 
-  async function openAbout() {
-    try {
-      const info = await invoke("get_app_version");
-      setAboutInfo(info);
-      setAboutOpen(true);
-    } catch {
-      setAboutInfo(null);
-      setAboutOpen(true);
-    }
-  }
-
   async function openSettings() {
     try {
       const s = await invoke("get_translation_settings");
@@ -733,8 +720,6 @@ export default function App() {
             {dark ? "Light" : "Dark"}
           </button>
           <button onClick={openSettings}>Settings</button>
-          <button onClick={openAbout}>About</button>
-          <button onClick={() => invoke("open_url", { url: "https://kaeda.app/quickstart.html" })}>Quick Start</button>
         </div>
         {current && (
           <div id="session-info">
@@ -1258,42 +1243,6 @@ export default function App() {
 
             <div className="dialog-actions">
               <button className="dialog-btn dialog-btn-cancel" onClick={() => setShowDeckManager(false)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {aboutOpen && (
-        <div className="dialog-overlay" onClick={() => setAboutOpen(false)}>
-          <div className="dialog about-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3>About Kaeda</h3>
-            {aboutInfo ? (
-              <>
-                <div className="about-row">
-                  <span className="about-label">Version</span>
-                  <span className="about-value">{aboutInfo.version}</span>
-                </div>
-                <div className="about-row">
-                  <span className="about-label">Platform</span>
-                  <span className="about-value">{aboutInfo.platform} ({aboutInfo.arch})</span>
-                </div>
-                <div className="about-description">
-                  Korean sentence mining tool — extract vocabulary from subtitles
-                  and export to Anki.
-                </div>
-                <div className="about-links">
-                  <a href="https://github.com/barroqt/kaeda" target="_blank" rel="noopener noreferrer">
-                    github.com/barroqt/kaeda
-                  </a>
-                </div>
-              </>
-            ) : (
-              <div className="about-loading">Loading…</div>
-            )}
-            <div className="dialog-actions">
-              <button className="dialog-btn dialog-btn-cancel" onClick={() => setAboutOpen(false)}>
                 Close
               </button>
             </div>

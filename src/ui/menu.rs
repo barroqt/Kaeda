@@ -37,7 +37,7 @@ pub fn render_menu(f: &mut Frame, area: Rect, state: &MenuState) {
     let list = List::new(items)
         .block(
             Block::default()
-                .title(" Lantern ")
+                .title(" Kaeda ")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Cyan)),
         )
