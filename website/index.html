@@ -427,8 +427,9 @@ async function populateDownloads() {
       if (btn) btn.href = asset.url;
     }
   } catch {
-    const btn = document.querySelector('.btn-download');
-    if (btn) btn.href = 'https://github.com/barroqt/kaeda/releases/latest';
+    document.querySelectorAll('.btn-download').forEach(btn => {
+      btn.href = 'https://github.com/barroqt/kaeda/releases/latest';
+    });
   }
 }
 populateDownloads();

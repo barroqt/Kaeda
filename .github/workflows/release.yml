@@ -170,6 +170,69 @@ jobs:
         with:
           files: ${{ steps.stage.outputs.archive }}
           generate_release_notes: true
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-website:
+    name: Update website release.json
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Regenerate release.json
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          BASE="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+          cat > website/release.json <<EOF
+          {
+            "version": "${VERSION}",
+            "tag": "${TAG}",
+            "release_page": "https://github.com/${{ github.repository }}/releases/tag/${TAG}",
+            "assets": {
+              "macos-arm": {
+                "label": "Apple Silicon",
+                "url": "${BASE}/kaeda-${TAG}-aarch64-apple-darwin.tar.gz"
+              },
+              "macos-intel": {
+                "label": "Intel",
+                "url": "${BASE}/kaeda-${TAG}-x86_64-apple-darwin.tar.gz"
+              },
+              "windows": {
+                "label": "Windows",
+                "url": "${BASE}/kaeda-${TAG}-x86_64-pc-windows-msvc.tar.gz"
+              },
+              "linux": {
+                "label": "Linux",
+                "url": "${BASE}/kaeda-${TAG}-x86_64-unknown-linux-gnu.tar.gz"
+              }
+            }
+          }
+          EOF
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add website/release.json
+          if git diff --cached --quiet; then
+            echo "release.json unchanged, skipping commit"
+          else
+            git commit -m "website: point downloads at ${{ github.ref_name }}"
+            git push origin main
+          fi
+
+      # Pushes made with GITHUB_TOKEN don't trigger on:push workflows,
+      # so kick the Pages deploy explicitly.
+      - name: Trigger website deploy
+        run: gh workflow run deploy-website.yml --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
