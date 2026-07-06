@@ -548,34 +548,18 @@ fn save_card(
     target: String,
     explanation: String,
 ) -> Result<CardDto, String> {
-    let active_deck_id = {
-        let inner = deck_state.inner.lock().map_err(|e| e.to_string())?;
-        inner.active_deck_id
-    };
+    let active_deck_id = deck_state.active_deck_id()?;
     state.save_card(active_deck_id, target, explanation)
 }
 
 #[tauri::command]
 fn list_decks(deck_state: tauri::State<'_, DeckState>) -> Result<Vec<DeckDto>, AppError> {
-    let inner = deck_state
-        .inner
-        .lock()
-        .map_err(|e| AppError::session_error(e.to_string()))?;
-    store::list_decks(&inner.store)
-        .map(|decks| decks.into_iter().map(DeckDto::from).collect())
-        .map_err(|e| AppError::session_error(e.to_string()))
+    deck_state.list_decks()
 }
 
 #[tauri::command]
 fn get_active_deck(deck_state: tauri::State<'_, DeckState>) -> Result<DeckDto, AppError> {
-    let inner = deck_state
-        .inner
-        .lock()
-        .map_err(|e| AppError::session_error(e.to_string()))?;
-    let deck = store::get_deck(&inner.store, inner.active_deck_id)
-        .map_err(|e| AppError::session_error(e.to_string()))?
-        .ok_or_else(|| AppError::deck_not_found(inner.active_deck_id.0))?;
-    Ok(DeckDto::from(deck))
+    deck_state.active_deck()
 }
 
 #[tauri::command]
@@ -585,22 +569,8 @@ fn set_active_deck(
     deck_id: i64,
 ) -> Result<(), AppError> {
     let deck_id = DeckId(deck_id);
-    {
-        let mut inner = deck_state
-            .inner
-            .lock()
-            .map_err(|e| AppError::session_error(e.to_string()))?;
-        store::get_deck(&inner.store, deck_id)
-            .map_err(|e| AppError::session_error(e.to_string()))?
-            .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
-        inner.active_deck_id = deck_id;
-    }
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::session_error(e.to_string()))?;
-    let config_path = app_data_dir.join("deck_config.json");
-    save_deck_config(&config_path, deck_id).map_err(|e| AppError::session_error(e))
+    deck_state.set_active_deck(deck_id)?;
+    persist_active_deck(&app_handle, deck_id)
 }
 
 #[tauri::command]
@@ -609,34 +579,9 @@ fn create_deck(
     deck_state: tauri::State<'_, DeckState>,
     name: String,
 ) -> Result<DeckDto, AppError> {
-    if name.trim().is_empty() {
-        return Err(AppError::invalid_deck_name());
-    }
-    let mut inner = deck_state
-        .inner
-        .lock()
-        .map_err(|e| AppError::session_error(e.to_string()))?;
-    let count =
-        store::deck_count(&inner.store).map_err(|e| AppError::session_error(e.to_string()))?;
-    if count >= 200 {
-        return Err(AppError::deck_limit_reached());
-    }
-    let deck_id = store::create_deck(&inner.store, &name)
-        .map_err(|e| AppError::session_error(e.to_string()))?;
-    let deck = store::get_deck(&inner.store, deck_id)
-        .map_err(|e| AppError::session_error(e.to_string()))?
-        .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
-    inner.active_deck_id = deck_id;
-    drop(inner);
-
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::session_error(e.to_string()))?;
-    let config_path = app_data_dir.join("deck_config.json");
-    save_deck_config(&config_path, deck_id).map_err(|e| AppError::session_error(e))?;
-
-    Ok(DeckDto::from(deck))
+    let deck = deck_state.create_deck(&name)?;
+    persist_active_deck(&app_handle, DeckId(deck.id))?;
+    Ok(deck)
 }
 
 #[tauri::command]
@@ -645,20 +590,7 @@ fn rename_deck(
     deck_id: i64,
     new_name: String,
 ) -> Result<DeckDto, AppError> {
-    if new_name.trim().is_empty() {
-        return Err(AppError::invalid_deck_name());
-    }
-    let deck_id = DeckId(deck_id);
-    let inner = deck_state
-        .inner
-        .lock()
-        .map_err(|e| AppError::session_error(e.to_string()))?;
-    store::rename_deck(&inner.store, deck_id, &new_name)
-        .map_err(|e| AppError::session_error(e.to_string()))?;
-    let deck = store::get_deck(&inner.store, deck_id)
-        .map_err(|e| AppError::session_error(e.to_string()))?
-        .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
-    Ok(DeckDto::from(deck))
+    deck_state.rename_deck(DeckId(deck_id), &new_name)
 }
 
 #[tauri::command]
@@ -667,50 +599,9 @@ fn delete_deck(
     deck_state: tauri::State<'_, DeckState>,
     deck_id: i64,
 ) -> Result<(), AppError> {
-    let deck_id = DeckId(deck_id);
-    let mut needs_save = false;
-    {
-        let mut inner = deck_state
-            .inner
-            .lock()
-            .map_err(|e| AppError::session_error(e.to_string()))?;
-
-        // Validate deck exists
-        store::get_deck(&inner.store, deck_id)
-            .map_err(|e| AppError::session_error(e.to_string()))?
-            .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
-
-        let was_active = inner.active_deck_id == deck_id;
-
-        // Delete deck and its cards
-        store::delete_deck(&inner.store, deck_id)
-            .map_err(|e| AppError::session_error(e.to_string()))?;
-
-        // If we deleted the active deck, reassign to the first remaining
-        if was_active {
-            let remaining = store::list_decks(&inner.store)
-                .map_err(|e| AppError::session_error(e.to_string()))?;
-            if let Some(first) = remaining.first() {
-                inner.active_deck_id = first.id;
-                needs_save = true;
-            }
-        }
+    if let Some(new_active) = deck_state.delete_deck(DeckId(deck_id))? {
+        persist_active_deck(&app_handle, new_active)?;
     }
-
-    if needs_save {
-        let inner = deck_state
-            .inner
-            .lock()
-            .map_err(|e| AppError::session_error(e.to_string()))?;
-        let app_data_dir = app_handle
-            .path()
-            .app_data_dir()
-            .map_err(|e| AppError::session_error(e.to_string()))?;
-        let config_path = app_data_dir.join("deck_config.json");
-        save_deck_config(&config_path, inner.active_deck_id)
-            .map_err(|e| AppError::session_error(e))?;
-    }
-
     Ok(())
 }
 
@@ -725,8 +616,7 @@ fn export_session(
     deck_state: tauri::State<'_, DeckState>,
     path: String,
 ) -> Result<(), String> {
-    let deck_inner = deck_state.inner.lock().map_err(|e| e.to_string())?;
-    let deck_id = deck_inner.active_deck_id;
+    let deck_id = deck_state.active_deck_id()?;
     state.export_session(Path::new(&path), deck_id)
 }
 
@@ -928,13 +818,126 @@ pub struct AppSettingsState {
     pub inner: std::sync::Mutex<AppSettings>,
 }
 
-pub struct DeckStateInner {
-    pub active_deck_id: DeckId,
-    pub store: Connection,
+struct DeckStateInner {
+    active_deck_id: DeckId,
+    store: Connection,
 }
 
 pub struct DeckState {
-    pub inner: std::sync::Mutex<DeckStateInner>,
+    inner: Mutex<DeckStateInner>,
+}
+
+impl DeckState {
+    pub fn new(store: Connection, active_deck_id: DeckId) -> Self {
+        Self {
+            inner: Mutex::new(DeckStateInner {
+                active_deck_id,
+                store,
+            }),
+        }
+    }
+
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, DeckStateInner>, AppError> {
+        self.inner
+            .lock()
+            .map_err(|e| AppError::session_error(e.to_string()))
+    }
+
+    pub fn active_deck_id(&self) -> Result<DeckId, String> {
+        let inner = self.inner.lock().map_err(|e| e.to_string())?;
+        Ok(inner.active_deck_id)
+    }
+
+    pub fn list_decks(&self) -> Result<Vec<DeckDto>, AppError> {
+        let inner = self.lock()?;
+        store::list_decks(&inner.store)
+            .map(|decks| decks.into_iter().map(DeckDto::from).collect())
+            .map_err(|e| AppError::session_error(e.to_string()))
+    }
+
+    pub fn active_deck(&self) -> Result<DeckDto, AppError> {
+        let inner = self.lock()?;
+        let deck = store::get_deck(&inner.store, inner.active_deck_id)
+            .map_err(|e| AppError::session_error(e.to_string()))?
+            .ok_or_else(|| AppError::deck_not_found(inner.active_deck_id.0))?;
+        Ok(DeckDto::from(deck))
+    }
+
+    /// Validate the deck exists, then make it active. The caller is
+    /// responsible for persisting the new active deck to the config file.
+    pub fn set_active_deck(&self, deck_id: DeckId) -> Result<(), AppError> {
+        let mut inner = self.lock()?;
+        store::get_deck(&inner.store, deck_id)
+            .map_err(|e| AppError::session_error(e.to_string()))?
+            .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
+        inner.active_deck_id = deck_id;
+        Ok(())
+    }
+
+    /// Create a deck and make it active. The caller is responsible for
+    /// persisting the new active deck to the config file.
+    pub fn create_deck(&self, name: &str) -> Result<DeckDto, AppError> {
+        if name.trim().is_empty() {
+            return Err(AppError::invalid_deck_name());
+        }
+        let mut inner = self.lock()?;
+        let count =
+            store::deck_count(&inner.store).map_err(|e| AppError::session_error(e.to_string()))?;
+        if count >= 200 {
+            return Err(AppError::deck_limit_reached());
+        }
+        let deck_id = store::create_deck(&inner.store, name)
+            .map_err(|e| AppError::session_error(e.to_string()))?;
+        let deck = store::get_deck(&inner.store, deck_id)
+            .map_err(|e| AppError::session_error(e.to_string()))?
+            .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
+        inner.active_deck_id = deck_id;
+        Ok(DeckDto::from(deck))
+    }
+
+    pub fn rename_deck(&self, deck_id: DeckId, new_name: &str) -> Result<DeckDto, AppError> {
+        if new_name.trim().is_empty() {
+            return Err(AppError::invalid_deck_name());
+        }
+        let inner = self.lock()?;
+        store::rename_deck(&inner.store, deck_id, new_name)
+            .map_err(|e| AppError::session_error(e.to_string()))?;
+        let deck = store::get_deck(&inner.store, deck_id)
+            .map_err(|e| AppError::session_error(e.to_string()))?
+            .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
+        Ok(DeckDto::from(deck))
+    }
+
+    /// Delete a deck and its cards. If the deleted deck was active and another
+    /// deck remains, the first remaining deck becomes active and its id is
+    /// returned so the caller can persist it to the config file.
+    pub fn delete_deck(&self, deck_id: DeckId) -> Result<Option<DeckId>, AppError> {
+        let mut inner = self.lock()?;
+        store::get_deck(&inner.store, deck_id)
+            .map_err(|e| AppError::session_error(e.to_string()))?
+            .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
+        let was_active = inner.active_deck_id == deck_id;
+        store::delete_deck(&inner.store, deck_id)
+            .map_err(|e| AppError::session_error(e.to_string()))?;
+        if was_active {
+            let remaining = store::list_decks(&inner.store)
+                .map_err(|e| AppError::session_error(e.to_string()))?;
+            if let Some(first) = remaining.first() {
+                inner.active_deck_id = first.id;
+                return Ok(Some(first.id));
+            }
+        }
+        Ok(None)
+    }
+}
+
+fn persist_active_deck(app_handle: &tauri::AppHandle, deck_id: DeckId) -> Result<(), AppError> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::session_error(e.to_string()))?;
+    let config_path = app_data_dir.join("deck_config.json");
+    save_deck_config(&config_path, deck_id).map_err(AppError::session_error)
 }
 
 fn load_deck_config(path: &std::path::Path) -> Option<DeckId> {
@@ -1005,12 +1008,7 @@ pub fn run() {
 
             info!("active deck: id={}", active_deck_id.0);
 
-            app.manage(DeckState {
-                inner: std::sync::Mutex::new(DeckStateInner {
-                    active_deck_id,
-                    store: deck_conn,
-                }),
-            });
+            app.manage(DeckState::new(deck_conn, active_deck_id));
 
             Ok(())
         })
@@ -2357,20 +2355,49 @@ mod tests {
         let default_id = store::ensure_default_deck(&conn).unwrap();
         let deck_id = store::create_deck(&conn, "Custom Deck").unwrap();
 
-        let state = DeckState {
-            inner: std::sync::Mutex::new(DeckStateInner {
-                active_deck_id: default_id,
-                store: conn,
-            }),
-        };
+        let state = DeckState::new(conn, default_id);
 
-        {
-            let mut inner = state.inner.lock().unwrap();
-            inner.active_deck_id = deck_id;
-        }
+        state.set_active_deck(deck_id).unwrap();
 
-        let inner = state.inner.lock().unwrap();
-        assert_eq!(inner.active_deck_id, deck_id);
+        assert_eq!(state.active_deck_id().unwrap(), deck_id);
+    }
+
+    #[test]
+    fn set_active_deck_rejects_unknown_deck() {
+        let conn = Connection::open_in_memory().unwrap();
+        store::init_store(&conn).unwrap();
+        let default_id = store::ensure_default_deck(&conn).unwrap();
+
+        let state = DeckState::new(conn, default_id);
+
+        assert!(state.set_active_deck(DeckId(9999)).is_err());
+        assert_eq!(state.active_deck_id().unwrap(), default_id);
+    }
+
+    #[test]
+    fn create_deck_makes_new_deck_active() {
+        let conn = Connection::open_in_memory().unwrap();
+        store::init_store(&conn).unwrap();
+        let default_id = store::ensure_default_deck(&conn).unwrap();
+
+        let state = DeckState::new(conn, default_id);
+
+        let deck = state.create_deck("New Deck").unwrap();
+        assert_eq!(deck.name, "New Deck");
+        assert_eq!(state.active_deck_id().unwrap(), DeckId(deck.id));
+        assert_eq!(state.list_decks().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn create_deck_rejects_blank_name() {
+        let conn = Connection::open_in_memory().unwrap();
+        store::init_store(&conn).unwrap();
+        let default_id = store::ensure_default_deck(&conn).unwrap();
+
+        let state = DeckState::new(conn, default_id);
+
+        assert!(state.create_deck("   ").is_err());
+        assert_eq!(state.list_decks().unwrap().len(), 1);
     }
 
     #[test]
@@ -2380,23 +2407,27 @@ mod tests {
         let default_id = store::ensure_default_deck(&conn).unwrap();
         let extra_id = store::create_deck(&conn, "Extra Deck").unwrap();
 
-        let state = DeckState {
-            inner: std::sync::Mutex::new(DeckStateInner {
-                active_deck_id: extra_id,
-                store: conn,
-            }),
-        };
+        let state = DeckState::new(conn, extra_id);
 
-        {
-            let mut inner = state.inner.lock().unwrap();
-            store::delete_deck(&inner.store, extra_id).unwrap();
-            let remaining = store::list_decks(&inner.store).unwrap();
-            assert_eq!(remaining.len(), 1);
-            inner.active_deck_id = remaining[0].id;
-        }
+        let reassigned = state.delete_deck(extra_id).unwrap();
 
-        let inner = state.inner.lock().unwrap();
-        assert_eq!(inner.active_deck_id, default_id);
-        assert_ne!(inner.active_deck_id, extra_id);
+        assert_eq!(reassigned, Some(default_id));
+        assert_eq!(state.active_deck_id().unwrap(), default_id);
+        assert_eq!(state.list_decks().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn deleting_inactive_deck_keeps_active_deck() {
+        let conn = Connection::open_in_memory().unwrap();
+        store::init_store(&conn).unwrap();
+        let default_id = store::ensure_default_deck(&conn).unwrap();
+        let extra_id = store::create_deck(&conn, "Extra Deck").unwrap();
+
+        let state = DeckState::new(conn, default_id);
+
+        let reassigned = state.delete_deck(extra_id).unwrap();
+
+        assert_eq!(reassigned, None);
+        assert_eq!(state.active_deck_id().unwrap(), default_id);
     }
 }
