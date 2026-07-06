@@ -30,12 +30,16 @@ struct TranslationResult {
 
 struct TranslationManager {
     cache: Mutex<HashMap<String, String>>,
+    /// Persistent SQLite dictionary cache; `None` when the cache database
+    /// could not be opened (lookups then go straight to the network).
+    dict_conn: Option<Mutex<Connection>>,
 }
 
 impl TranslationManager {
-    fn new() -> Self {
+    fn new(dict_conn: Option<Connection>) -> Self {
         Self {
             cache: Mutex::new(HashMap::new()),
+            dict_conn: dict_conn.map(Mutex::new),
         }
     }
 
@@ -47,6 +51,49 @@ impl TranslationManager {
     fn insert_cache(&self, lemma: String, translation: String) {
         if let Ok(mut cache) = self.cache.lock() {
             cache.insert(lemma, translation);
+        }
+    }
+
+    /// Resolves a lemma through the cache hierarchy: in-memory cache,
+    /// then the persistent SQLite cache (which itself falls back to the
+    /// online dictionary and stores the result), then the online
+    /// dictionary directly when no cache database is available.
+    ///
+    /// Performs blocking I/O; call from a blocking context.
+    fn resolve(&self, lemma: &str) -> Option<String> {
+        if let Some(translation) = self.get_cached(lemma) {
+            return Some(translation);
+        }
+
+        let fetched = match &self.dict_conn {
+            Some(conn) => match conn.lock() {
+                Ok(conn) => {
+                    dictionary::suggest_explanation_cached(&conn, lemma).unwrap_or_else(|e| {
+                        warn!("cached dictionary lookup failed for '{lemma}': {e:?}");
+                        None
+                    })
+                }
+                Err(_) => {
+                    warn!("dictionary cache lock poisoned; using online lookup for '{lemma}'");
+                    Self::online_lookup(lemma)
+                }
+            },
+            None => Self::online_lookup(lemma),
+        };
+
+        if let Some(translation) = &fetched {
+            self.insert_cache(lemma.to_string(), translation.clone());
+        }
+        fetched
+    }
+
+    fn online_lookup(lemma: &str) -> Option<String> {
+        match dictionary::suggest_explanation(lemma) {
+            Ok(translation) => translation,
+            Err(e) => {
+                warn!("dictionary lookup failed for '{lemma}': {e:?}");
+                None
+            }
         }
     }
 }
@@ -680,18 +727,9 @@ fn request_translation(
     let lemma_clone = lemma.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
-        let translation = match dictionary::suggest_explanation(&lemma_clone) {
-            Ok(Some(translation)) => {
-                if let Some(manager) = app_handle.try_state::<TranslationManager>() {
-                    manager.insert_cache(lemma_clone.clone(), translation.clone());
-                }
-                Some(translation)
-            }
-            Ok(None) => None,
-            Err(e) => {
-                warn!("dictionary lookup failed for '{lemma_clone}': {e:?}");
-                None
-            }
+        let translation = match app_handle.try_state::<TranslationManager>() {
+            Some(manager) => manager.resolve(&lemma_clone),
+            None => TranslationManager::online_lookup(&lemma_clone),
         };
 
         let _ = app_handle.emit(
@@ -972,7 +1010,6 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(MiningSessionState::new())
-        .manage(TranslationManager::new())
         .manage(default_video_server())
         .setup(|app| {
             let app_data_dir = app
@@ -993,6 +1030,27 @@ pub fn run() {
             app.manage(AppSettingsState {
                 inner: std::sync::Mutex::new(settings),
             });
+
+            // Persistent dictionary cache; degrade to in-memory-only on failure.
+            let dict_path = app_data_dir.join("dictionary.db");
+            let dict_conn = Connection::open(&dict_path)
+                .map_err(|e| e.to_string())
+                .and_then(|conn| {
+                    dictionary::db::ensure_dict_table(&conn)
+                        .map(|()| conn)
+                        .map_err(|e| e.to_string())
+                });
+            let dict_conn = match dict_conn {
+                Ok(conn) => Some(conn),
+                Err(e) => {
+                    warn!(
+                        "failed to open dictionary cache at {}: {e}; translations will not persist across restarts",
+                        dict_path.display()
+                    );
+                    None
+                }
+            };
+            app.manage(TranslationManager::new(dict_conn));
 
             // Deck store
             let deck_store_path = app_data_dir.join("decks.db");
@@ -1639,26 +1697,26 @@ mod tests {
 
     #[test]
     fn translation_manager_cache_hit() {
-        let manager = TranslationManager::new();
+        let manager = TranslationManager::new(None);
         manager.insert_cache("사랑".into(), "love".into());
         assert_eq!(manager.get_cached("사랑"), Some("love".into()));
     }
 
     #[test]
     fn translation_manager_cache_miss() {
-        let manager = TranslationManager::new();
+        let manager = TranslationManager::new(None);
         assert_eq!(manager.get_cached("없는단어"), None);
     }
 
     #[test]
     fn translation_manager_cache_empty() {
-        let manager = TranslationManager::new();
+        let manager = TranslationManager::new(None);
         assert_eq!(manager.get_cached(""), None);
     }
 
     #[test]
     fn translation_manager_cache_overwrites() {
-        let manager = TranslationManager::new();
+        let manager = TranslationManager::new(None);
         manager.insert_cache("사랑".into(), "love".into());
         manager.insert_cache("사랑".into(), "affection".into());
         assert_eq!(manager.get_cached("사랑"), Some("affection".into()));
@@ -1666,11 +1724,51 @@ mod tests {
 
     #[test]
     fn translation_manager_cache_multi_entry() {
-        let manager = TranslationManager::new();
+        let manager = TranslationManager::new(None);
         manager.insert_cache("사랑".into(), "love".into());
         manager.insert_cache("우정".into(), "friendship".into());
         assert_eq!(manager.get_cached("사랑"), Some("love".into()));
         assert_eq!(manager.get_cached("우정"), Some("friendship".into()));
+    }
+
+    fn seeded_dict_conn(meaning: &str) -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        dictionary::db::ensure_dict_table(&conn).unwrap();
+        dictionary::db::cache_entry(
+            &conn,
+            &dictionary::db::DictEntry {
+                lemma: "가짜시험단어".into(),
+                meaning: meaning.into(),
+                pos: "명사".into(),
+                examples: vec![],
+            },
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn translation_manager_resolves_from_persistent_cache() {
+        let manager = TranslationManager::new(Some(seeded_dict_conn("seeded meaning")));
+        assert_eq!(
+            manager.resolve("가짜시험단어"),
+            Some("(명사) seeded meaning".into())
+        );
+        // Resolved value is promoted to the in-memory cache.
+        assert_eq!(
+            manager.get_cached("가짜시험단어"),
+            Some("(명사) seeded meaning".into())
+        );
+    }
+
+    #[test]
+    fn translation_manager_memory_cache_wins_over_persistent() {
+        let manager = TranslationManager::new(Some(seeded_dict_conn("db meaning")));
+        manager.insert_cache("가짜시험단어".into(), "memory meaning".into());
+        assert_eq!(
+            manager.resolve("가짜시험단어"),
+            Some("memory meaning".into())
+        );
     }
 
     #[test]

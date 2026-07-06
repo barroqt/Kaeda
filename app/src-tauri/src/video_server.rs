@@ -64,7 +64,7 @@ fn serve(stream: TcpStream) -> Result<(), String> {
         .ok_or_else(|| "empty request".to_string())?
         .map_err(|e| e.to_string())?;
 
-    let parts: Vec<&str> = request_line.trim().split_whitespace().collect();
+    let parts: Vec<&str> = request_line.split_whitespace().collect();
     if parts.len() < 2 || parts[0] != "GET" {
         let _ = respond(&mut writer, 405, "Method Not Allowed", None, None, None);
         return Ok(());

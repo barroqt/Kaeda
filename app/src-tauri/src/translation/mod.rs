@@ -30,18 +30,17 @@ impl Default for AppSettings {
 
 impl AppSettings {
     pub fn to_translation_settings(&self) -> TranslationSettings {
-        if self.deepl_enabled {
-            if let Some(key) = &self.deepl_api_key {
-                if !key.is_empty() {
-                    return TranslationSettings {
-                        provider: TranslationProvider::DeepL(DeepLConfig {
-                            api_key: key.clone(),
-                            source_lang: "KO".into(),
-                            target_lang: self.deepl_target_lang.clone(),
-                        }),
-                    };
-                }
-            }
+        if self.deepl_enabled
+            && let Some(key) = &self.deepl_api_key
+            && !key.is_empty()
+        {
+            return TranslationSettings {
+                provider: TranslationProvider::DeepL(DeepLConfig {
+                    api_key: key.clone(),
+                    source_lang: "KO".into(),
+                    target_lang: self.deepl_target_lang.clone(),
+                }),
+            };
         }
         TranslationSettings {
             provider: TranslationProvider::Disabled,
