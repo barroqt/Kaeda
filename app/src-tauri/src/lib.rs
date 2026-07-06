@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use kaeda_core::deck::DeckId;
+use kaeda_core::deck::{self, DeckId};
 use kaeda_core::dictionary;
 use kaeda_core::session::{Card, Session};
 use kaeda_core::store::{self, KnownLinesStore};
@@ -915,34 +915,15 @@ impl DeckState {
     /// Create a deck and make it active. The caller is responsible for
     /// persisting the new active deck to the config file.
     pub fn create_deck(&self, name: &str) -> Result<DeckDto, AppError> {
-        if name.trim().is_empty() {
-            return Err(AppError::invalid_deck_name());
-        }
         let mut inner = self.lock()?;
-        let count =
-            store::deck_count(&inner.store).map_err(|e| AppError::session_error(e.to_string()))?;
-        if count >= 200 {
-            return Err(AppError::deck_limit_reached());
-        }
-        let deck_id = store::create_deck(&inner.store, name)
-            .map_err(|e| AppError::session_error(e.to_string()))?;
-        let deck = store::get_deck(&inner.store, deck_id)
-            .map_err(|e| AppError::session_error(e.to_string()))?
-            .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
-        inner.active_deck_id = deck_id;
+        let deck = deck::create_deck(&inner.store, name)?;
+        inner.active_deck_id = deck.id;
         Ok(DeckDto::from(deck))
     }
 
     pub fn rename_deck(&self, deck_id: DeckId, new_name: &str) -> Result<DeckDto, AppError> {
-        if new_name.trim().is_empty() {
-            return Err(AppError::invalid_deck_name());
-        }
         let inner = self.lock()?;
-        store::rename_deck(&inner.store, deck_id, new_name)
-            .map_err(|e| AppError::session_error(e.to_string()))?;
-        let deck = store::get_deck(&inner.store, deck_id)
-            .map_err(|e| AppError::session_error(e.to_string()))?
-            .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
+        let deck = deck::rename_deck(&inner.store, deck_id, new_name)?;
         Ok(DeckDto::from(deck))
     }
 
@@ -951,21 +932,11 @@ impl DeckState {
     /// returned so the caller can persist it to the config file.
     pub fn delete_deck(&self, deck_id: DeckId) -> Result<Option<DeckId>, AppError> {
         let mut inner = self.lock()?;
-        store::get_deck(&inner.store, deck_id)
-            .map_err(|e| AppError::session_error(e.to_string()))?
-            .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
-        let was_active = inner.active_deck_id == deck_id;
-        store::delete_deck(&inner.store, deck_id)
-            .map_err(|e| AppError::session_error(e.to_string()))?;
-        if was_active {
-            let remaining = store::list_decks(&inner.store)
-                .map_err(|e| AppError::session_error(e.to_string()))?;
-            if let Some(first) = remaining.first() {
-                inner.active_deck_id = first.id;
-                return Ok(Some(first.id));
-            }
+        let new_active = deck::delete_deck(&inner.store, deck_id, inner.active_deck_id)?;
+        if let Some(id) = new_active {
+            inner.active_deck_id = id;
         }
-        Ok(None)
+        Ok(new_active)
     }
 }
 

@@ -123,17 +123,32 @@ impl AppError {
         }
     }
 
-    pub fn invalid_deck_name() -> Self {
+    fn invalid_deck_name() -> Self {
         Self {
             code: "INVALID_DECK_NAME",
             message: "Deck name must not be empty".into(),
         }
     }
 
-    pub fn deck_limit_reached() -> Self {
+    fn deck_limit_reached() -> Self {
         Self {
             code: "DECK_LIMIT_REACHED",
-            message: "Cannot create more than 200 decks".into(),
+            message: format!(
+                "Cannot create more than {} decks",
+                kaeda_core::deck::MAX_DECKS
+            ),
+        }
+    }
+}
+
+impl From<kaeda_core::deck::DeckError> for AppError {
+    fn from(err: kaeda_core::deck::DeckError) -> Self {
+        use kaeda_core::deck::DeckError;
+        match err {
+            DeckError::EmptyName => Self::invalid_deck_name(),
+            DeckError::LimitReached => Self::deck_limit_reached(),
+            DeckError::NotFound(id) => Self::deck_not_found(id.0),
+            DeckError::Store(e) => Self::session_error(e.to_string()),
         }
     }
 }
