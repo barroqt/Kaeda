@@ -17,10 +17,12 @@ use tauri::Manager;
 use tracing::{debug, error, info, warn};
 
 mod dto;
+mod error;
 mod translation;
 mod video_server;
 use dto::{CardDto, DeckDto, SubtitleDto, SubtitleSearchResultDto, TokenDto};
-use translation::{AppError, AppSettings, TranslationProvider, TranslationSettings};
+use error::AppError;
+use translation::{AppSettings, TranslationProvider, TranslationSettings};
 
 #[derive(Clone, serde::Serialize)]
 struct TranslationResult {
