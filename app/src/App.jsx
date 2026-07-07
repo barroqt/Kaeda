@@ -64,6 +64,7 @@ export default function App() {
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
   const [sessionError, setSessionError] = useState(null);
   const [toasts, setToasts] = useState([]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searchHighlightIndex, setSearchHighlightIndex] = useState(-1);
@@ -986,14 +987,30 @@ export default function App() {
     expandedGroupKey !== spanKey(selectedExpressionSpan);
 
   return (
-    <div id="app">
-      <aside id="sidebar">
+    <div id="app" className={sidebarCollapsed ? "sidebar-collapsed" : ""}>
+      {sidebarCollapsed && (
+        <button
+          id="sidebar-expand-btn"
+          title="Show subtitle panel"
+          onClick={() => setSidebarCollapsed(false)}
+        >
+          &raquo;
+        </button>
+      )}
+      <aside id="sidebar" className={sidebarCollapsed ? "collapsed" : ""}>
         <div id="toolbar">
           <button onClick={openNewSessionModal}>New Session</button>
           <button onClick={() => setDark((d) => !d)}>
             {dark ? "Light" : "Dark"}
           </button>
           <button onClick={openSettings}>Settings</button>
+          <button
+            id="sidebar-collapse-btn"
+            title="Hide subtitle panel"
+            onClick={() => setSidebarCollapsed(true)}
+          >
+            &laquo;
+          </button>
         </div>
         {current && (
           <div id="session-info">
