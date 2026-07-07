@@ -26,6 +26,18 @@ impl From<&Token> for TokenDto {
     }
 }
 
+impl From<&TokenDto> for Token {
+    fn from(dto: &TokenDto) -> Self {
+        Self {
+            surface: dto.surface.as_str().into(),
+            lemma: dto.lemma.as_str().into(),
+            pos: dto.pos.as_str().into(),
+            byte_start: dto.byte_start,
+            byte_end: dto.byte_end,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubtitleDto {
     pub id: u32,

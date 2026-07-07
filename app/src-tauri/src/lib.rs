@@ -98,6 +98,74 @@ impl TranslationManager {
             }
         }
     }
+
+    /// Resolves a multi-token expression per PRD §5.2: in-memory cache,
+    /// then persistent cache, then `naver` with the dictionary form, then
+    /// `deepl` with the surface text. A fetched result is cached (memory
+    /// and persistent) under the dictionary form. `None` means no provider
+    /// produced a translation — not an error.
+    ///
+    /// The providers are injected so the resolution order is testable
+    /// without network. Performs blocking I/O; call from a blocking context.
+    fn resolve_expression_with<N, D>(
+        &self,
+        dictionary_form: &str,
+        surface_text: &str,
+        naver: N,
+        deepl: D,
+    ) -> Option<String>
+    where
+        N: FnOnce(&str) -> Option<String>,
+        D: FnOnce(&str) -> Option<String>,
+    {
+        if let Some(translation) = self.get_cached(dictionary_form) {
+            return Some(translation);
+        }
+        if let Some(translation) = self.persistent_cached(dictionary_form) {
+            self.insert_cache(dictionary_form.to_string(), translation.clone());
+            return Some(translation);
+        }
+
+        let fetched = naver(dictionary_form).or_else(|| deepl(surface_text));
+        if let Some(translation) = &fetched {
+            self.store_persistent(dictionary_form, translation);
+            self.insert_cache(dictionary_form.to_string(), translation.clone());
+        }
+        fetched
+    }
+
+    /// Looks up the persistent dictionary cache only — no online fallback.
+    fn persistent_cached(&self, lemma: &str) -> Option<String> {
+        let conn = self.dict_conn.as_ref()?.lock().ok()?;
+        match dictionary::db::lookup(&conn, lemma) {
+            Ok(entry) => entry.map(|e| dictionary::format_explanation(&e)),
+            Err(e) => {
+                warn!("dictionary cache lookup failed for '{lemma}': {e:?}");
+                None
+            }
+        }
+    }
+
+    /// Stores an already-formatted translation in the persistent cache.
+    /// POS is left empty so the stored text is returned verbatim on lookup.
+    fn store_persistent(&self, lemma: &str, translation: &str) {
+        let Some(conn) = &self.dict_conn else {
+            return;
+        };
+        let Ok(conn) = conn.lock() else {
+            warn!("dictionary cache lock poisoned; not caching '{lemma}'");
+            return;
+        };
+        let entry = dictionary::db::DictEntry {
+            lemma: lemma.to_string(),
+            meaning: translation.to_string(),
+            pos: String::new(),
+            examples: vec![],
+        };
+        if let Err(e) = dictionary::db::cache_entry(&conn, &entry) {
+            warn!("failed to cache translation for '{lemma}': {e}");
+        }
+    }
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -428,6 +496,40 @@ impl MiningSessionState {
         ))
     }
 
+    /// Returns `(surface_text, dictionary_form)` for a token range of the
+    /// current subtitle. The range is inclusive token indices; out-of-bounds
+    /// or `start > end` is rejected with [`AppError::invalid_token_range`].
+    pub fn expression_range(&self, start: usize, end: usize) -> Result<(String, String), AppError> {
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|e| AppError::session_error(e.to_string()))?;
+        if inner.session.is_none() {
+            return Err(AppError::session_error("no active session".into()));
+        }
+        let (entry, token_dtos) = inner
+            .subtitles
+            .get(inner.current_index)
+            .zip(inner.subtitle_tokens.get(inner.current_index))
+            .ok_or_else(|| AppError::session_error("no current subtitle".into()))?;
+        if start > end || end >= token_dtos.len() {
+            return Err(AppError::invalid_token_range(start, end, token_dtos.len()));
+        }
+
+        let line = entry.text.as_str();
+        let tokens: Vec<kaeda_core::tokenizer::Token> =
+            token_dtos[start..=end].iter().map(Into::into).collect();
+        let (Some(first), Some(last)) = (tokens.first(), tokens.last()) else {
+            return Err(AppError::invalid_token_range(start, end, token_dtos.len()));
+        };
+        let surface_text = line
+            .get(first.byte_start..last.byte_end)
+            .unwrap_or_default()
+            .to_string();
+        let dictionary_form = kaeda_core::expression::dictionary_form(line, &tokens);
+        Ok((surface_text, dictionary_form))
+    }
+
     pub async fn translate_current_span(
         &self,
         settings: &TranslationSettings,
@@ -739,6 +841,69 @@ fn request_translation(
             "translation-result",
             TranslationResult {
                 lemma: lemma_clone,
+                translation,
+            },
+        );
+    });
+
+    Ok(None)
+}
+
+/// Runs the DeepL fallback synchronously; `None` when translation is
+/// disabled or the request fails. Call from a blocking context only.
+fn deepl_fallback_blocking(surface_text: &str, provider: &TranslationProvider) -> Option<String> {
+    let config = match provider {
+        TranslationProvider::DeepL(config) => config,
+        TranslationProvider::Disabled => return None,
+    };
+    match tauri::async_runtime::block_on(translation::translate_with_deepl(surface_text, config)) {
+        Ok(translation) => Some(translation),
+        Err(e) => {
+            warn!("DeepL fallback failed: {e}");
+            None
+        }
+    }
+}
+
+#[tauri::command]
+fn request_expression_translation(
+    start_index: usize,
+    end_index: usize,
+    state: tauri::State<'_, MiningSessionState>,
+    settings_state: tauri::State<'_, AppSettingsState>,
+    translation_manager: tauri::State<'_, TranslationManager>,
+    app_handle: tauri::AppHandle,
+) -> Result<Option<String>, AppError> {
+    let (surface_text, dictionary_form) = state.expression_range(start_index, end_index)?;
+
+    if let Some(translation) = translation_manager.get_cached(&dictionary_form) {
+        return Ok(Some(translation));
+    }
+
+    let provider = {
+        let settings = settings_state
+            .inner
+            .lock()
+            .map_err(|e| AppError::session_error(e.to_string()))?;
+        settings.to_translation_settings().provider
+    };
+
+    let app_handle = app_handle.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let translation = match app_handle.try_state::<TranslationManager>() {
+            Some(manager) => manager.resolve_expression_with(
+                &dictionary_form,
+                &surface_text,
+                TranslationManager::online_lookup,
+                |surface| deepl_fallback_blocking(surface, &provider),
+            ),
+            None => TranslationManager::online_lookup(&dictionary_form),
+        };
+
+        let _ = app_handle.emit(
+            "translation-result",
+            TranslationResult {
+                lemma: dictionary_form,
                 translation,
             },
         );
@@ -1065,6 +1230,7 @@ pub fn run() {
             get_deck_name,
             export_session,
             request_translation,
+            request_expression_translation,
             mark_line_known,
             is_line_known,
             get_video_path,
@@ -1749,6 +1915,130 @@ mod tests {
             manager.resolve("가짜시험단어"),
             Some("memory meaning".into())
         );
+    }
+
+    fn empty_dict_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        dictionary::db::ensure_dict_table(&conn).unwrap();
+        conn
+    }
+
+    #[test]
+    fn expression_resolution_prefers_cache() {
+        use std::cell::Cell;
+
+        let conn = empty_dict_conn();
+        dictionary::db::cache_entry(
+            &conn,
+            &dictionary::db::DictEntry {
+                lemma: "마음에 들다".into(),
+                meaning: "to be liked".into(),
+                pos: String::new(),
+                examples: vec![],
+            },
+        )
+        .unwrap();
+        let manager = TranslationManager::new(Some(conn));
+
+        let naver_called = Cell::new(false);
+        let deepl_called = Cell::new(false);
+        let result = manager.resolve_expression_with(
+            "마음에 들다",
+            "마음에 들어",
+            |_| {
+                naver_called.set(true);
+                None
+            },
+            |_| {
+                deepl_called.set(true);
+                None
+            },
+        );
+
+        assert_eq!(result, Some("to be liked".into()));
+        assert!(!naver_called.get(), "cache hit must not query Naver");
+        assert!(!deepl_called.get(), "cache hit must not query DeepL");
+    }
+
+    #[test]
+    fn expression_resolution_caches_fallback_result() {
+        let manager = TranslationManager::new(Some(empty_dict_conn()));
+
+        let result = manager.resolve_expression_with(
+            "마음에 들다",
+            "마음에 들었어요",
+            |_| None, // Naver miss (e.g. phrase collapsed and rejected)
+            |surface| {
+                assert_eq!(
+                    surface, "마음에 들었어요",
+                    "DeepL must get the surface text"
+                );
+                Some("to be liked".into())
+            },
+        );
+        assert_eq!(result, Some("to be liked".into()));
+
+        // The fallback result is persisted under the dictionary form.
+        {
+            let conn = manager.dict_conn.as_ref().unwrap().lock().unwrap();
+            let entry = dictionary::db::lookup(&conn, "마음에 들다")
+                .unwrap()
+                .expect("fallback result should be cached under the dictionary form");
+            assert_eq!(entry.meaning, "to be liked");
+        }
+
+        // A second resolution is a cache hit: neither provider is consulted.
+        let second = manager.resolve_expression_with(
+            "마음에 들다",
+            "마음에 들었어요",
+            |_| panic!("Naver must not be called on a cache hit"),
+            |_| panic!("DeepL must not be called on a cache hit"),
+        );
+        assert_eq!(second, Some("to be liked".into()));
+    }
+
+    #[test]
+    fn expression_resolution_returns_empty_when_no_provider() {
+        let manager = TranslationManager::new(Some(empty_dict_conn()));
+        let result =
+            manager.resolve_expression_with("마음에 들다", "마음에 들어", |_| None, |_| None);
+        assert_eq!(result, None, "no provider yields None, not an error");
+    }
+
+    #[test]
+    fn expression_range_validates_indices() {
+        let state = MiningSessionState::new();
+        state
+            .start_session(
+                &fixture_path("sample.srt"),
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+
+        let token_count = state.subtitles().unwrap()[0].tokens.len();
+        assert!(token_count > 0);
+
+        let err = state.expression_range(1, 0).unwrap_err();
+        assert_eq!(err.code, "INVALID_TOKEN_RANGE");
+        let err = state.expression_range(0, token_count).unwrap_err();
+        assert_eq!(err.code, "INVALID_TOKEN_RANGE");
+
+        // Full range of "안녕하세요 반갑습니다.": surface is the token-covered
+        // slice of the line; dictionary form lemmatizes the final verb.
+        let (surface, form) = state.expression_range(0, token_count - 1).unwrap();
+        assert!(!surface.is_empty());
+        assert!(!form.is_empty());
+        assert!(surface.starts_with("안녕"));
+    }
+
+    #[test]
+    fn expression_range_requires_session() {
+        let state = MiningSessionState::new();
+        let err = state.expression_range(0, 0).unwrap_err();
+        assert_eq!(err.code, "SESSION_ERROR");
     }
 
     #[test]

@@ -42,6 +42,13 @@ impl AppError {
         }
     }
 
+    pub fn invalid_token_range(start: usize, end: usize, token_count: usize) -> Self {
+        Self {
+            code: "INVALID_TOKEN_RANGE",
+            message: format!("invalid token range {start}..={end} for {token_count} tokens"),
+        }
+    }
+
     pub fn deck_not_found(id: i64) -> Self {
         Self {
             code: "DECK_NOT_FOUND",
