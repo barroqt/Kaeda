@@ -364,20 +364,20 @@
     <div class="download-card">
       <h3>macOS</h3>
       <div class="download-options">
-        <a href="#" data-asset="macos-arm" class="btn-download">Download for Apple Silicon</a>
-        <a href="#" data-asset="macos-intel" class="btn-download">Download for Intel</a>
+        <a href="https://github.com/barroqt/kaeda/releases/download/v0.2.0/kaeda-v0.2.0-aarch64-apple-darwin.tar.gz" data-asset="macos-arm" class="btn-download">Download for Apple Silicon</a>
+        <a href="https://github.com/barroqt/kaeda/releases/download/v0.2.0/kaeda-v0.2.0-x86_64-apple-darwin.tar.gz" data-asset="macos-intel" class="btn-download">Download for Intel</a>
       </div>
     </div>
     <div class="download-card">
       <h3>Windows</h3>
       <div class="download-options">
-        <a href="#" data-asset="windows" class="btn-download">Download for Windows</a>
+        <a href="https://github.com/barroqt/kaeda/releases/download/v0.2.0/kaeda-v0.2.0-x86_64-pc-windows-msvc.tar.gz" data-asset="windows" class="btn-download">Download for Windows</a>
       </div>
     </div>
     <div class="download-card">
       <h3>Linux</h3>
       <div class="download-options">
-        <a href="#" data-asset="linux" class="btn-download">Download for Linux <span>experimental</span></a>
+        <a href="https://github.com/barroqt/kaeda/releases/download/v0.2.0/kaeda-v0.2.0-x86_64-unknown-linux-gnu.tar.gz" data-asset="linux" class="btn-download">Download for Linux <span>experimental</span></a>
       </div>
     </div>
   </div>
@@ -426,18 +426,20 @@
 </footer>
 
 <script>
+// Buttons carry direct asset URLs in their href; release.json overrides
+// them at load so a release only has to bump that one file. If the fetch
+// fails, the baked-in links still download directly.
 async function populateDownloads() {
   try {
     const res = await fetch('release.json');
+    if (!res.ok) return;
     const data = await res.json();
     for (const [key, asset] of Object.entries(data.assets)) {
       const btn = document.querySelector(`[data-asset="${key}"]`);
-      if (btn) btn.href = asset.url;
+      if (btn && asset.url) btn.href = asset.url;
     }
   } catch {
-    for (const btn of document.querySelectorAll('.btn-download')) {
-      btn.href = 'https://github.com/barroqt/kaeda/releases/latest';
-    }
+    // keep static hrefs
   }
 }
 populateDownloads();

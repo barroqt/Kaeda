@@ -73,6 +73,10 @@ The download buttons on the website read their URLs from
    - Each `assets.*.url` — replace the old tag with the new one in both
      the path segment (`download/vX.Y.Z/`) and the archive filename
      (`kaeda-vX.Y.Z-<target>.tar.gz`).
+   Also update the matching static `href` on each `.btn-download` link in
+   `website/index.html` (the page overrides them from `release.json` at
+   load, but the static links are the no-JS/fetch-failure fallback and
+   should not go stale).
 2. Verify each URL downloads the right asset (open it in a browser or
    `curl -IL <url>` and check for a `200`).
 3. Commit and push. Any push to `main` touching `website/**` triggers the
