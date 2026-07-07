@@ -28,6 +28,10 @@ use translation::{AppSettings, TranslationProvider, TranslationSettings};
 struct TranslationResult {
     lemma: String,
     translation: Option<String>,
+    /// Token range for expression results; `None` for single-lemma lookups.
+    /// Lets the frontend correlate the event with its pending request even
+    /// though it cannot compute the dictionary form (the `lemma` key) itself.
+    range: Option<(usize, usize)>,
 }
 
 struct TranslationManager {
@@ -184,6 +188,35 @@ struct MiningSessionInner {
     source_file_id: String,
     video_path: String,
     card_store: Option<Store>,
+}
+
+impl MiningSessionInner {
+    /// Returns `(surface_text, dictionary_form)` for an inclusive token
+    /// range of the current subtitle; out-of-bounds or `start > end` is
+    /// rejected with [`AppError::invalid_token_range`].
+    fn expression_parts(&self, start: usize, end: usize) -> Result<(String, String), AppError> {
+        let (entry, token_dtos) = self
+            .subtitles
+            .get(self.current_index)
+            .zip(self.subtitle_tokens.get(self.current_index))
+            .ok_or_else(|| AppError::session_error("no current subtitle".into()))?;
+        if start > end || end >= token_dtos.len() {
+            return Err(AppError::invalid_token_range(start, end, token_dtos.len()));
+        }
+
+        let line = entry.text.as_str();
+        let tokens: Vec<kaeda_core::tokenizer::Token> =
+            token_dtos[start..=end].iter().map(Into::into).collect();
+        let (Some(first), Some(last)) = (tokens.first(), tokens.last()) else {
+            return Err(AppError::invalid_token_range(start, end, token_dtos.len()));
+        };
+        let surface_text = line
+            .get(first.byte_start..last.byte_end)
+            .unwrap_or_default()
+            .to_string();
+        let dictionary_form = kaeda_core::expression::dictionary_form(line, &tokens);
+        Ok((surface_text, dictionary_form))
+    }
 }
 
 pub struct MiningSessionState {
@@ -374,6 +407,19 @@ impl MiningSessionState {
         target: String,
         explanation: String,
     ) -> Result<CardDto, String> {
+        self.save_card_range(deck_id, target, explanation, None)
+    }
+
+    /// Saves a card for the current subtitle. When `token_range` spans more
+    /// than one token, the target is the range's dictionary form (computed
+    /// here, via `core::expression`) and the card is tagged `"expression"`.
+    pub fn save_card_range(
+        &self,
+        deck_id: DeckId,
+        target: String,
+        explanation: String,
+        token_range: Option<(usize, usize)>,
+    ) -> Result<CardDto, String> {
         let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
         if inner.session.is_none() {
             return Err("no active session".to_string());
@@ -386,6 +432,19 @@ impl MiningSessionState {
             (entry.text.clone(), entry.id)
         };
 
+        let (target, tags) = match token_range {
+            Some((start, end)) if end > start => {
+                let (_, dictionary_form) =
+                    inner.expression_parts(start, end).map_err(|e| e.message)?;
+                (dictionary_form, vec!["expression".to_string()])
+            }
+            Some((start, end)) => {
+                inner.expression_parts(start, end).map_err(|e| e.message)?;
+                (target, Vec::new())
+            }
+            None => (target, Vec::new()),
+        };
+
         let session = inner.session.as_mut().ok_or("no active session")?;
 
         let card = Card {
@@ -394,7 +453,7 @@ impl MiningSessionState {
             target,
             explanation,
             deck_id,
-            tags: vec![],
+            tags,
             file_id: session.source_file_id.clone(),
             subtitle_id,
         };
@@ -507,27 +566,7 @@ impl MiningSessionState {
         if inner.session.is_none() {
             return Err(AppError::session_error("no active session".into()));
         }
-        let (entry, token_dtos) = inner
-            .subtitles
-            .get(inner.current_index)
-            .zip(inner.subtitle_tokens.get(inner.current_index))
-            .ok_or_else(|| AppError::session_error("no current subtitle".into()))?;
-        if start > end || end >= token_dtos.len() {
-            return Err(AppError::invalid_token_range(start, end, token_dtos.len()));
-        }
-
-        let line = entry.text.as_str();
-        let tokens: Vec<kaeda_core::tokenizer::Token> =
-            token_dtos[start..=end].iter().map(Into::into).collect();
-        let (Some(first), Some(last)) = (tokens.first(), tokens.last()) else {
-            return Err(AppError::invalid_token_range(start, end, token_dtos.len()));
-        };
-        let surface_text = line
-            .get(first.byte_start..last.byte_end)
-            .unwrap_or_default()
-            .to_string();
-        let dictionary_form = kaeda_core::expression::dictionary_form(line, &tokens);
-        Ok((surface_text, dictionary_form))
+        inner.expression_parts(start, end)
     }
 
     pub async fn translate_current_span(
@@ -699,9 +738,10 @@ fn save_card(
     deck_state: tauri::State<'_, DeckState>,
     target: String,
     explanation: String,
+    token_range: Option<(usize, usize)>,
 ) -> Result<CardDto, String> {
     let active_deck_id = deck_state.active_deck_id()?;
-    state.save_card(active_deck_id, target, explanation)
+    state.save_card_range(active_deck_id, target, explanation, token_range)
 }
 
 #[tauri::command]
@@ -842,6 +882,7 @@ fn request_translation(
             TranslationResult {
                 lemma: lemma_clone,
                 translation,
+                range: None,
             },
         );
     });
@@ -905,6 +946,7 @@ fn request_expression_translation(
             TranslationResult {
                 lemma: dictionary_form,
                 translation,
+                range: Some((start_index, end_index)),
             },
         );
     });
@@ -1566,6 +1608,67 @@ mod tests {
         let result = state.save_card(DeckId(1), "test".into(), "explanation".into());
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "no active session");
+    }
+
+    #[test]
+    fn save_card_with_expression_sets_tag() {
+        let state = MiningSessionState::new();
+        state
+            .start_session(
+                &fixture_path("sample.srt"),
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+        let token_count = state.subtitles().unwrap()[0].tokens.len();
+        assert!(token_count > 1, "fixture line should tokenize to >1 token");
+
+        // Multi-token range: target is the backend-computed dictionary form
+        // and the card is tagged as an expression.
+        let (_, dictionary_form) = state.expression_range(0, token_count - 1).unwrap();
+        let card = state
+            .save_card_range(
+                DeckId(1),
+                "ignored".into(),
+                "greeting".into(),
+                Some((0, token_count - 1)),
+            )
+            .unwrap();
+        assert_eq!(card.target, dictionary_form);
+        assert_eq!(card.tags, vec!["expression".to_string()]);
+
+        // Single-token range: unchanged behavior, no expression tag.
+        let card = state
+            .save_card_range(DeckId(1), "안녕".into(), "Hello".into(), Some((0, 0)))
+            .unwrap();
+        assert_eq!(card.target, "안녕");
+        assert!(card.tags.is_empty());
+
+        // No range at all (legacy path): no expression tag either.
+        let card = state
+            .save_card_range(DeckId(1), "안녕".into(), "Hello".into(), None)
+            .unwrap();
+        assert!(card.tags.is_empty());
+    }
+
+    #[test]
+    fn save_card_with_invalid_range_is_rejected() {
+        let state = MiningSessionState::new();
+        state
+            .start_session(
+                &fixture_path("sample.srt"),
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+        let token_count = state.subtitles().unwrap()[0].tokens.len();
+        let result =
+            state.save_card_range(DeckId(1), "t".into(), "e".into(), Some((0, token_count)));
+        assert!(result.is_err());
     }
 
     #[test]

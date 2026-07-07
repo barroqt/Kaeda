@@ -153,8 +153,19 @@ export default function App() {
 
   useEffect(() => {
     const unlisten = listen("translation-result", (event) => {
-      const { lemma, translation: result } = event.payload;
-      if (fetchingLemmaRef.current !== lemma) return;
+      const { lemma, translation: result, range } = event.payload;
+      const pending = fetchingLemmaRef.current;
+      // Single-lemma results match by lemma; expression results (which carry
+      // a token range) match by range, since the frontend does not know the
+      // dictionary form the backend keyed the event with.
+      const matches =
+        typeof pending === "string"
+          ? range == null && pending === lemma
+          : pending != null &&
+            range != null &&
+            pending.start === range[0] &&
+            pending.end === range[1];
+      if (!matches) return;
       setExplanationLoading(false);
       if (result != null) {
         setExplanation(result);
@@ -204,27 +215,50 @@ export default function App() {
     if (!selectedRange) return;
     const current = subtitles[currentIndex];
     if (!current || !current.tokens || selectedRange.end >= current.tokens.length) return;
-    // Multi-token ranges resolve via request_expression_translation (ISSUE 5).
-    if (selectedRange.start !== selectedRange.end) return;
-    const lemma = current.tokens[selectedRange.start].lemma;
-    if (!lemma.trim()) return;
-    fetchingLemmaRef.current = lemma;
-    setExplanation("");
-    setExplanationLoading(true);
-    invoke("request_translation", { lemma })
-      .then((result) => {
-        if (fetchingLemmaRef.current !== lemma) return;
-        if (result != null) {
-          setExplanation(result);
-          setExplanationLoading(false);
-        }
-      })
-      .catch(() => {
-        if (fetchingLemmaRef.current === lemma) {
-          setExplanationLoading(false);
-          showToast("Dictionary lookup failed", "error");
-        }
-      });
+    const { start, end } = selectedRange;
+    if (start === end) {
+      const lemma = current.tokens[start].lemma;
+      if (!lemma.trim()) return;
+      fetchingLemmaRef.current = lemma;
+      setExplanation("");
+      setExplanationLoading(true);
+      invoke("request_translation", { lemma })
+        .then((result) => {
+          if (fetchingLemmaRef.current !== lemma) return;
+          if (result != null) {
+            setExplanation(result);
+            setExplanationLoading(false);
+          }
+        })
+        .catch(() => {
+          if (fetchingLemmaRef.current === lemma) {
+            setExplanationLoading(false);
+            showToast("Dictionary lookup failed", "error");
+          }
+        });
+    } else {
+      // The dictionary form (the event's lemma key) is computed backend-side,
+      // so the pending marker is the range itself; the translation-result
+      // listener correlates expression events by their range payload.
+      const pending = { start, end };
+      fetchingLemmaRef.current = pending;
+      setExplanation("");
+      setExplanationLoading(true);
+      invoke("request_expression_translation", { startIndex: start, endIndex: end })
+        .then((result) => {
+          if (fetchingLemmaRef.current !== pending) return;
+          if (result != null) {
+            setExplanation(result);
+            setExplanationLoading(false);
+          }
+        })
+        .catch(() => {
+          if (fetchingLemmaRef.current === pending) {
+            setExplanationLoading(false);
+            showToast("Expression lookup failed", "error");
+          }
+        });
+    }
   }, [selectedRange, currentIndex, subtitles]);
 
   function openNewSessionModal() {
@@ -358,18 +392,20 @@ export default function App() {
     if (!explanation.trim()) return;
     const current = subtitles[currentIndex];
     if (!current) return;
-    // ISSUE 5 will pass the full range so multi-token saves use the
-    // dictionary form; until then the range's first lemma stands in.
-    const target =
+    const validRange =
       selectedRange &&
       current.tokens &&
       selectedRange.end < current.tokens.length
-        ? current.tokens[selectedRange.start].lemma
-        : "";
+        ? selectedRange
+        : null;
+    // For multi-token ranges the backend replaces the target with the
+    // range's dictionary form and tags the card "expression".
+    const target = validRange ? current.tokens[validRange.start].lemma : "";
     try {
       const card = await invoke("save_card", {
         target,
         explanation,
+        tokenRange: validRange ? [validRange.start, validRange.end] : null,
       });
       setSavedCard(card);
       setExplanation("");
