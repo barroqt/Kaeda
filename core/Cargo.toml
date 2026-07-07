@@ -12,7 +12,9 @@ tracing = "0.1"
 chrono = "0.4"
 lindera = "3.0.7"
 lindera-ko-dic = { version = "3.0.7", features = ["embed-ko-dic"] }
-rusqlite = "0.39.0"
+# "bundled" compiles SQLite from source: Windows runners/user machines
+# have no system sqlite3.lib, and it keeps the SQLite version uniform.
+rusqlite = { version = "0.39.0", features = ["bundled"] }
 ureq = "3"
 # Links native FFmpeg (ffmpeg-sys-next); release builds must stay
 # self-contained, so this is opt-in until app-side bundling is solved.
