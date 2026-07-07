@@ -30,7 +30,8 @@ export default function App() {
   const [settingsApiKey, setSettingsApiKey] = useState("");
   const [settingsTargetLang, setSettingsTargetLang] = useState("EN");
   const [settingsHasApiKey, setSettingsHasApiKey] = useState(false);
-  const [selectedTokenIndex, setSelectedTokenIndex] = useState(-1);
+  // Contiguous token selection: { start, end } inclusive indices, or null.
+  const [selectedRange, setSelectedRange] = useState(null);
   const [explanation, setExplanation] = useState("");
   const [explanationLoading, setExplanationLoading] = useState(false);
   const [spanTranslation, setSpanTranslation] = useState("");
@@ -72,6 +73,9 @@ export default function App() {
   const replayTimeoutRef = useRef(null);
   const toastIdRef = useRef(0);
   const searchInputRef = useRef(null);
+  // Fixed end of a shift+click span: set whenever the selection collapses
+  // to a single token (click or plain A/D), never by shift interactions.
+  const selectionAnchorRef = useRef(-1);
 
   function showToast(message, type = "info") {
     const id = ++toastIdRef.current;
@@ -118,7 +122,8 @@ export default function App() {
   }, [loadSubtitles]);
 
   useEffect(() => {
-    setSelectedTokenIndex(-1);
+    setSelectedRange(null);
+    selectionAnchorRef.current = -1;
     setExplanation("");
     setExplanationLoading(false);
     setSpanTranslation("");
@@ -196,10 +201,12 @@ export default function App() {
   }, [searchQuery]);
 
   useEffect(() => {
-    if (selectedTokenIndex < 0) return;
+    if (!selectedRange) return;
     const current = subtitles[currentIndex];
-    if (!current || !current.tokens || selectedTokenIndex >= current.tokens.length) return;
-    const lemma = current.tokens[selectedTokenIndex].lemma;
+    if (!current || !current.tokens || selectedRange.end >= current.tokens.length) return;
+    // Multi-token ranges resolve via request_expression_translation (ISSUE 5).
+    if (selectedRange.start !== selectedRange.end) return;
+    const lemma = current.tokens[selectedRange.start].lemma;
     if (!lemma.trim()) return;
     fetchingLemmaRef.current = lemma;
     setExplanation("");
@@ -218,7 +225,7 @@ export default function App() {
           showToast("Dictionary lookup failed", "error");
         }
       });
-  }, [selectedTokenIndex, currentIndex, subtitles]);
+  }, [selectedRange, currentIndex, subtitles]);
 
   function openNewSessionModal() {
     setShowNewSessionModal(true);
@@ -351,11 +358,13 @@ export default function App() {
     if (!explanation.trim()) return;
     const current = subtitles[currentIndex];
     if (!current) return;
+    // ISSUE 5 will pass the full range so multi-token saves use the
+    // dictionary form; until then the range's first lemma stands in.
     const target =
-      selectedTokenIndex >= 0 &&
+      selectedRange &&
       current.tokens &&
-      selectedTokenIndex < current.tokens.length
-        ? current.tokens[selectedTokenIndex].lemma
+      selectedRange.end < current.tokens.length
+        ? current.tokens[selectedRange.start].lemma
         : "";
     try {
       const card = await invoke("save_card", {
@@ -583,8 +592,34 @@ export default function App() {
     }
   }
 
+  /** Set the range, keeping the previous object when nothing changed so
+   *  re-selecting the same token stays a no-op (as with the old index). */
+  function applySelectedRange(next) {
+    setSelectedRange((prev) =>
+      prev && prev.start === next.start && prev.end === next.end ? prev : next,
+    );
+  }
+
+  /** Collapse the selection to one token and reset the shift anchor. */
+  function selectSingleToken(index) {
+    selectionAnchorRef.current = index;
+    applySelectedRange({ start: index, end: index });
+  }
+
+  function handleTokenClick(index, shiftKey) {
+    const anchor = selectionAnchorRef.current;
+    if (shiftKey && selectedRange && anchor >= 0) {
+      applySelectedRange({
+        start: Math.min(anchor, index),
+        end: Math.max(anchor, index),
+      });
+    } else {
+      selectSingleToken(index);
+    }
+  }
+
   navigateRef.current = navigate;
-  tokenNavRef.current = { selectedTokenIndex, subtitles, currentIndex, setSelectedTokenIndex };
+  tokenNavRef.current = { selectedRange, subtitles, currentIndex, applySelectedRange, selectSingleToken };
   saveRef.current = handleSaveCard;
   markKnownRef.current = handleMarkKnown;
   replayRef.current = handleReplay;
@@ -642,21 +677,40 @@ export default function App() {
       } else if (e.key === "s" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         navigateRef.current(1);
-      } else if (e.key === "a" && !e.metaKey && !e.ctrlKey) {
+      } else if ((e.key === "a" || e.key === "A") && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         const ref = tokenNavRef.current;
         const tokens = ref.subtitles[ref.currentIndex]?.tokens;
-        if (tokens && tokens.length > 0 && ref.selectedTokenIndex > 0) {
-          ref.setSelectedTokenIndex(ref.selectedTokenIndex - 1);
+        const range = ref.selectedRange;
+        if (tokens && tokens.length > 0 && range) {
+          if (e.shiftKey) {
+            if (range.end > range.start) {
+              // Shrink from the right.
+              ref.applySelectedRange({ start: range.start, end: range.end - 1 });
+            } else if (range.start > 0) {
+              // Single token: extend one to the left.
+              ref.applySelectedRange({ start: range.start - 1, end: range.end });
+            }
+          } else if (range.start > 0) {
+            ref.selectSingleToken(range.start - 1);
+          }
         }
-      } else if (e.key === "d" && !e.metaKey && !e.ctrlKey) {
+      } else if ((e.key === "d" || e.key === "D") && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         const ref = tokenNavRef.current;
         const tokens = ref.subtitles[ref.currentIndex]?.tokens;
-        if (tokens && tokens.length > 0 && ref.selectedTokenIndex < tokens.length - 1) {
-          ref.setSelectedTokenIndex(
-            ref.selectedTokenIndex < 0 ? 0 : ref.selectedTokenIndex + 1,
-          );
+        const range = ref.selectedRange;
+        if (tokens && tokens.length > 0) {
+          if (e.shiftKey) {
+            if (range && range.end < tokens.length - 1) {
+              // Grow the right edge.
+              ref.applySelectedRange({ start: range.start, end: range.end + 1 });
+            }
+          } else if (!range) {
+            ref.selectSingleToken(0);
+          } else if (range.end < tokens.length - 1) {
+            ref.selectSingleToken(range.end + 1);
+          }
         }
       } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
@@ -944,9 +998,13 @@ export default function App() {
                         key={i}
                         className={
                           "word-token" +
-                          (selectedTokenIndex === i ? " selected" : "")
+                          (selectedRange &&
+                          i >= selectedRange.start &&
+                          i <= selectedRange.end
+                            ? " selected"
+                            : "")
                         }
-                        onClick={() => setSelectedTokenIndex(i)}
+                        onClick={(e) => handleTokenClick(i, e.shiftKey)}
                         title={`${t.lemma} (${t.pos})`}
                       >
                         {t.surface}
