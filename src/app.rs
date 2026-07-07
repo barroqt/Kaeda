@@ -23,7 +23,7 @@ use kaeda_core::dictionary::api;
 use kaeda_core::dictionary::db::{DictEntry, cache_entry, lookup};
 use kaeda_core::filter::FilterConfig;
 use kaeda_core::filter::filter_content_tokens;
-use kaeda_core::store::{DeckEntry, add_to_deck, init_store, mark_known};
+use kaeda_core::store::{DeckEntry, Store};
 use kaeda_core::subtitle::SubtitleEntry;
 use kaeda_core::tokenizer::korean::{KoreanTokenizer, Token};
 
@@ -397,12 +397,10 @@ impl Drop for RawMode {
     }
 }
 
-pub fn run(state: &mut AppState, conn: &Connection, _config: &FilterConfig) -> anyhow::Result<()> {
+pub fn run(state: &mut AppState, store: &Store, _config: &FilterConfig) -> anyhow::Result<()> {
     execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0)).context("failed to clear terminal")?;
 
-    init_store(conn).context("failed to init store")?;
-
-    state.update_definition(conn);
+    state.update_definition(store.connection());
 
     let mut terminal =
         ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))
@@ -411,7 +409,7 @@ pub fn run(state: &mut AppState, conn: &Connection, _config: &FilterConfig) -> a
     let _raw = RawMode::new()?;
 
     loop {
-        state.check_definition_results(conn);
+        state.check_definition_results(store.connection());
 
         if state.needs_redraw {
             terminal.draw(|f| state.draw(f))?;
@@ -431,14 +429,14 @@ pub fn run(state: &mut AppState, conn: &Connection, _config: &FilterConfig) -> a
             Action::None => {}
             Action::AddToDeck => {
                 if let Some(entry) = state.build_deck_entry() {
-                    add_to_deck(conn, &entry)?;
+                    store.add_to_deck(&entry)?;
                     state.deck_count = state.deck_count.saturating_add(1);
                 }
                 state.next_subtitle();
             }
             Action::MarkKnown => {
                 if let Some(token) = state.selected_candidate() {
-                    mark_known(conn, token.lemma.as_str())?;
+                    store.mark_known(token.lemma.as_str())?;
                 }
                 state.next_subtitle();
             }
@@ -448,7 +446,7 @@ pub fn run(state: &mut AppState, conn: &Connection, _config: &FilterConfig) -> a
             Action::Quit => break Ok(()),
         }
 
-        state.update_definition(conn);
+        state.update_definition(store.connection());
     }
 }
 

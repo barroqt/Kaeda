@@ -18,319 +18,368 @@ pub struct DeckEntry {
     pub source_file: String,
 }
 
-fn migrate_card_decks(conn: &Connection) -> Result<(), CoreError> {
-    let schema: String = conn
-        .query_row(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='card_decks'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap_or_default();
-    if schema.to_uppercase().contains("UNIQUE") {
-        conn.execute_batch(
-            "PRAGMA foreign_keys = OFF;
-             CREATE TABLE card_decks_migrated (
-                 id   INTEGER PRIMARY KEY AUTOINCREMENT,
-                 name TEXT NOT NULL
-             );
-             INSERT INTO card_decks_migrated (id, name) SELECT id, name FROM card_decks;
-             DROP TABLE card_decks;
-             ALTER TABLE card_decks_migrated RENAME TO card_decks;
-             PRAGMA foreign_keys = ON;",
-        )?;
-    }
-    Ok(())
-}
-
-pub fn init_store(conn: &Connection) -> anyhow::Result<()> {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS deck (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            lemma           TEXT NOT NULL UNIQUE,
-            surface         TEXT NOT NULL,
-            meaning         TEXT NOT NULL,
-            source_sentence TEXT,
-            source_file     TEXT,
-            added_at        TEXT NOT NULL,
-            status          TEXT DEFAULT 'new'
-        );
-        CREATE TABLE IF NOT EXISTS known_words (
-            lemma   TEXT PRIMARY KEY,
-            added_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS known_lines (
-            file_id     TEXT NOT NULL,
-            subtitle_id INTEGER NOT NULL,
-            added_at    TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (file_id, subtitle_id)
-        );
-        CREATE TABLE IF NOT EXISTS card_decks (
-            id   INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS session_cards (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            deck_id         INTEGER NOT NULL REFERENCES card_decks(id) ON DELETE CASCADE,
-            session_card_id INTEGER NOT NULL,
-            sentence        TEXT NOT NULL,
-            target          TEXT NOT NULL,
-            explanation     TEXT NOT NULL DEFAULT '',
-            tags            TEXT NOT NULL DEFAULT '',
-            file_id         TEXT NOT NULL,
-            subtitle_id     INTEGER NOT NULL
-        );",
-    )?;
-    migrate_card_decks(conn)?;
-    Ok(())
-}
-
-pub fn deck_count(conn: &Connection) -> Result<i64, CoreError> {
-    let count: i64 = conn.query_row("SELECT COUNT(*) FROM card_decks", [], |row| row.get(0))?;
-    Ok(count)
-}
-
-/// Ensure at least one card deck exists. If the `card_decks` table is empty,
-/// inserts a default deck named `"Korean – General"`. Returns the ID of the
-/// first deck (existing or newly created).
-pub fn ensure_default_deck(conn: &Connection) -> Result<DeckId, CoreError> {
-    let count: i64 = conn.query_row("SELECT COUNT(*) FROM card_decks", [], |row| row.get(0))?;
-    if count == 0 {
-        conn.execute(
-            "INSERT INTO card_decks (name) VALUES ('Korean – General')",
-            [],
-        )?;
-    }
-    let id: i64 = conn.query_row("SELECT id FROM card_decks ORDER BY id LIMIT 1", [], |row| {
-        row.get(0)
-    })?;
-    Ok(DeckId(id))
-}
-
-pub fn create_deck(conn: &Connection, name: &str) -> Result<DeckId, CoreError> {
-    conn.execute(
-        "INSERT INTO card_decks (name) VALUES (?1)",
-        rusqlite::params![name],
-    )?;
-    let id: i64 = conn.last_insert_rowid();
-    Ok(DeckId(id))
-}
-
-pub fn list_decks(conn: &Connection) -> Result<Vec<Deck>, CoreError> {
-    let mut stmt = conn.prepare("SELECT id, name FROM card_decks ORDER BY id")?;
-    let decks = stmt
-        .query_map([], |row| {
-            let id: i64 = row.get(0)?;
-            let name: String = row.get(1)?;
-            Ok(Deck {
-                id: DeckId(id),
-                name,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(decks)
-}
-
-pub fn get_deck(conn: &Connection, id: DeckId) -> Result<Option<Deck>, CoreError> {
-    let mut stmt = conn.prepare("SELECT id, name FROM card_decks WHERE id = ?1")?;
-    let mut rows = stmt.query_map(rusqlite::params![id.0], |row| {
-        let id: i64 = row.get(0)?;
-        let name: String = row.get(1)?;
-        Ok(Deck {
-            id: DeckId(id),
-            name,
-        })
-    })?;
-    match rows.next() {
-        Some(Ok(deck)) => Ok(Some(deck)),
-        Some(Err(e)) => Err(CoreError::Database(e)),
-        None => Ok(None),
-    }
-}
-
-pub fn rename_deck(conn: &Connection, id: DeckId, name: &str) -> Result<(), CoreError> {
-    let affected = conn.execute(
-        "UPDATE card_decks SET name = ?1 WHERE id = ?2",
-        rusqlite::params![name, id.0],
-    )?;
-    if affected == 0 {
-        return Err(CoreError::DeckNotFound(id));
-    }
-    Ok(())
-}
-
-pub fn delete_deck(conn: &Connection, id: DeckId) -> Result<(), CoreError> {
-    conn.execute(
-        "DELETE FROM session_cards WHERE deck_id = ?1",
-        rusqlite::params![id.0],
-    )?;
-    conn.execute(
-        "DELETE FROM card_decks WHERE id = ?1",
-        rusqlite::params![id.0],
-    )?;
-    Ok(())
-}
-
-pub fn save_card_to_store(conn: &Connection, card: &Card) -> Result<(), CoreError> {
-    conn.execute(
-        "INSERT INTO session_cards (deck_id, session_card_id, sentence, target, explanation, tags, file_id, subtitle_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        rusqlite::params![
-            card.deck_id.0,
-            card.card_id,
-            card.sentence,
-            card.target,
-            card.explanation,
-            card.tags.join(","),
-            card.file_id,
-            card.subtitle_id,
-        ],
-    )?;
-    Ok(())
-}
-
-pub fn list_cards_by_deck(conn: &Connection, deck_id: DeckId) -> Result<Vec<Card>, CoreError> {
-    let mut stmt = conn.prepare(
-        "SELECT session_card_id, sentence, target, explanation, tags, file_id, subtitle_id
-         FROM session_cards WHERE deck_id = ?1 ORDER BY session_card_id",
-    )?;
-    let cards = stmt
-        .query_map(rusqlite::params![deck_id.0], |row| {
-            let session_card_id: u32 = row.get(0)?;
-            let sentence: String = row.get(1)?;
-            let target: String = row.get(2)?;
-            let explanation: String = row.get(3)?;
-            let tags_str: String = row.get(4)?;
-            let file_id: String = row.get(5)?;
-            let subtitle_id: u32 = row.get(6)?;
-            let tags: Vec<String> = if tags_str.is_empty() {
-                Vec::new()
-            } else {
-                tags_str.split(',').map(|s| s.to_string()).collect()
-            };
-            Ok(Card {
-                card_id: session_card_id,
-                deck_id,
-                sentence,
-                target,
-                explanation,
-                tags,
-                file_id,
-                subtitle_id,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(cards)
-}
-
-pub fn get_or_create_deck_by_name(conn: &Connection, name: &str) -> Result<DeckId, CoreError> {
-    let mut stmt = conn.prepare("SELECT id FROM card_decks WHERE name = ?1")?;
-    let existing: Option<i64> = stmt
-        .query_map(rusqlite::params![name], |row| row.get(0))?
-        .next()
-        .transpose()?;
-    match existing {
-        Some(id) => Ok(DeckId(id)),
-        None => create_deck(conn, name),
-    }
-}
-
-pub fn delete_session_card(conn: &Connection, card_id: u32) -> Result<(), CoreError> {
-    conn.execute(
-        "DELETE FROM session_cards WHERE session_card_id = ?1",
-        rusqlite::params![card_id],
-    )?;
-    Ok(())
-}
-
-pub fn mark_known(conn: &Connection, lemma: &str) -> anyhow::Result<()> {
-    conn.execute(
-        "INSERT OR IGNORE INTO known_words (lemma, added_at) VALUES (?1, ?2)",
-        rusqlite::params![lemma, Utc::now().to_rfc3339()],
-    )?;
-    Ok(())
-}
-
-pub fn list_known_words(conn: &Connection) -> anyhow::Result<Vec<String>> {
-    let mut stmt = conn.prepare("SELECT lemma FROM known_words ORDER BY lemma")?;
-    let lemmas: Vec<String> = stmt
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(lemmas)
-}
-
-pub fn add_known_word(conn: &Connection, lemma: &str, known_path: &str) -> anyhow::Result<()> {
-    mark_known(conn, lemma)?;
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(known_path)?;
-    writeln!(file, "{lemma}")?;
-    Ok(())
-}
-
-pub fn sync_wordlist(conn: &Connection, path: &str) -> anyhow::Result<()> {
-    let mut stmt = conn.prepare("SELECT lemma FROM deck WHERE status = 'new'")?;
-    let lemmas: Vec<String> = stmt
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut file = fs::File::create(path)?;
-    for lemma in &lemmas {
-        writeln!(file, "{lemma}")?;
-    }
-    Ok(())
-}
-
 pub struct Stats {
     pub total_words: usize,
     pub added_today: usize,
     pub total_known: usize,
 }
 
-impl Stats {
-    pub fn load(conn: &Connection) -> anyhow::Result<Self> {
-        let total_words: i64 = conn
-            .query_row("SELECT COUNT(*) FROM deck", [], |row| row.get(0))
-            .unwrap_or(0);
-        let added_today: i64 = conn
+/// Persistent store for mined vocabulary, known words, card decks and
+/// session cards.
+///
+/// Owns its SQLite connection; the schema is created (and migrated) by the
+/// constructors, so a `Store` is always ready to use.
+pub struct Store {
+    conn: Connection,
+}
+
+impl Store {
+    fn init(&self) -> Result<(), CoreError> {
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS deck (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                lemma           TEXT NOT NULL UNIQUE,
+                surface         TEXT NOT NULL,
+                meaning         TEXT NOT NULL,
+                source_sentence TEXT,
+                source_file     TEXT,
+                added_at        TEXT NOT NULL,
+                status          TEXT DEFAULT 'new'
+            );
+            CREATE TABLE IF NOT EXISTS known_words (
+                lemma   TEXT PRIMARY KEY,
+                added_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS known_lines (
+                file_id     TEXT NOT NULL,
+                subtitle_id INTEGER NOT NULL,
+                added_at    TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (file_id, subtitle_id)
+            );
+            CREATE TABLE IF NOT EXISTS card_decks (
+                id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS session_cards (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                deck_id         INTEGER NOT NULL REFERENCES card_decks(id) ON DELETE CASCADE,
+                session_card_id INTEGER NOT NULL,
+                sentence        TEXT NOT NULL,
+                target          TEXT NOT NULL,
+                explanation     TEXT NOT NULL DEFAULT '',
+                tags            TEXT NOT NULL DEFAULT '',
+                file_id         TEXT NOT NULL,
+                subtitle_id     INTEGER NOT NULL
+            );",
+        )?;
+        self.migrate_card_decks()?;
+        Ok(())
+    }
+
+    /// Drop the legacy UNIQUE constraint on `card_decks.name` by rebuilding
+    /// the table when an old schema is detected.
+    fn migrate_card_decks(&self) -> Result<(), CoreError> {
+        let schema: String = self
+            .conn
             .query_row(
-                "SELECT COUNT(*) FROM deck WHERE date(added_at) = date('now')",
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='card_decks'",
                 [],
                 |row| row.get(0),
             )
-            .unwrap_or(0);
-        let total_known: i64 = conn
-            .query_row("SELECT COUNT(*) FROM known_words", [], |row| row.get(0))
-            .unwrap_or(0);
+            .unwrap_or_default();
+        if schema.to_uppercase().contains("UNIQUE") {
+            self.conn.execute_batch(
+                "PRAGMA foreign_keys = OFF;
+                 CREATE TABLE card_decks_migrated (
+                     id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                     name TEXT NOT NULL
+                 );
+                 INSERT INTO card_decks_migrated (id, name) SELECT id, name FROM card_decks;
+                 DROP TABLE card_decks;
+                 ALTER TABLE card_decks_migrated RENAME TO card_decks;
+                 PRAGMA foreign_keys = ON;",
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Open a file-backed store at `path`.
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, CoreError> {
+        let conn = Connection::open(path)?;
+        let store = Self { conn };
+        store.init()?;
+        Ok(store)
+    }
+
+    /// Create an in-memory store (useful for testing).
+    pub fn in_memory() -> Result<Self, CoreError> {
+        let conn = Connection::open_in_memory()?;
+        let store = Self { conn };
+        store.init()?;
+        Ok(store)
+    }
+
+    /// Access the underlying connection, for modules that keep their own
+    /// tables in the same database file (e.g. the dictionary cache).
+    pub fn connection(&self) -> &Connection {
+        &self.conn
+    }
+
+    // -- card decks ---------------------------------------------------------
+
+    pub fn deck_count(&self) -> Result<i64, CoreError> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM card_decks", [], |row| row.get(0))?;
+        Ok(count)
+    }
+
+    /// Ensure at least one card deck exists. If the `card_decks` table is
+    /// empty, inserts a default deck named `"Korean – General"`. Returns the
+    /// ID of the first deck (existing or newly created).
+    pub fn ensure_default_deck(&self) -> Result<DeckId, CoreError> {
+        if self.deck_count()? == 0 {
+            self.conn.execute(
+                "INSERT INTO card_decks (name) VALUES ('Korean – General')",
+                [],
+            )?;
+        }
+        let id: i64 =
+            self.conn
+                .query_row("SELECT id FROM card_decks ORDER BY id LIMIT 1", [], |row| {
+                    row.get(0)
+                })?;
+        Ok(DeckId(id))
+    }
+
+    pub fn create_deck(&self, name: &str) -> Result<DeckId, CoreError> {
+        self.conn.execute(
+            "INSERT INTO card_decks (name) VALUES (?1)",
+            rusqlite::params![name],
+        )?;
+        Ok(DeckId(self.conn.last_insert_rowid()))
+    }
+
+    pub fn list_decks(&self) -> Result<Vec<Deck>, CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name FROM card_decks ORDER BY id")?;
+        let decks = stmt
+            .query_map([], |row| {
+                let id: i64 = row.get(0)?;
+                let name: String = row.get(1)?;
+                Ok(Deck {
+                    id: DeckId(id),
+                    name,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(decks)
+    }
+
+    pub fn get_deck(&self, id: DeckId) -> Result<Option<Deck>, CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name FROM card_decks WHERE id = ?1")?;
+        let mut rows = stmt.query_map(rusqlite::params![id.0], |row| {
+            let id: i64 = row.get(0)?;
+            let name: String = row.get(1)?;
+            Ok(Deck {
+                id: DeckId(id),
+                name,
+            })
+        })?;
+        match rows.next() {
+            Some(Ok(deck)) => Ok(Some(deck)),
+            Some(Err(e)) => Err(CoreError::Database(e)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn rename_deck(&self, id: DeckId, name: &str) -> Result<(), CoreError> {
+        let affected = self.conn.execute(
+            "UPDATE card_decks SET name = ?1 WHERE id = ?2",
+            rusqlite::params![name, id.0],
+        )?;
+        if affected == 0 {
+            return Err(CoreError::DeckNotFound(id));
+        }
+        Ok(())
+    }
+
+    pub fn delete_deck(&self, id: DeckId) -> Result<(), CoreError> {
+        self.conn.execute(
+            "DELETE FROM session_cards WHERE deck_id = ?1",
+            rusqlite::params![id.0],
+        )?;
+        self.conn.execute(
+            "DELETE FROM card_decks WHERE id = ?1",
+            rusqlite::params![id.0],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_or_create_deck_by_name(&self, name: &str) -> Result<DeckId, CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM card_decks WHERE name = ?1")?;
+        let existing: Option<i64> = stmt
+            .query_map(rusqlite::params![name], |row| row.get(0))?
+            .next()
+            .transpose()?;
+        match existing {
+            Some(id) => Ok(DeckId(id)),
+            None => self.create_deck(name),
+        }
+    }
+
+    // -- session cards ------------------------------------------------------
+
+    pub fn save_card(&self, card: &Card) -> Result<(), CoreError> {
+        self.conn.execute(
+            "INSERT INTO session_cards (deck_id, session_card_id, sentence, target, explanation, tags, file_id, subtitle_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                card.deck_id.0,
+                card.card_id,
+                card.sentence,
+                card.target,
+                card.explanation,
+                card.tags.join(","),
+                card.file_id,
+                card.subtitle_id,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_cards_by_deck(&self, deck_id: DeckId) -> Result<Vec<Card>, CoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT session_card_id, sentence, target, explanation, tags, file_id, subtitle_id
+             FROM session_cards WHERE deck_id = ?1 ORDER BY session_card_id",
+        )?;
+        let cards = stmt
+            .query_map(rusqlite::params![deck_id.0], |row| {
+                let session_card_id: u32 = row.get(0)?;
+                let sentence: String = row.get(1)?;
+                let target: String = row.get(2)?;
+                let explanation: String = row.get(3)?;
+                let tags_str: String = row.get(4)?;
+                let file_id: String = row.get(5)?;
+                let subtitle_id: u32 = row.get(6)?;
+                let tags: Vec<String> = if tags_str.is_empty() {
+                    Vec::new()
+                } else {
+                    tags_str.split(',').map(|s| s.to_string()).collect()
+                };
+                Ok(Card {
+                    card_id: session_card_id,
+                    deck_id,
+                    sentence,
+                    target,
+                    explanation,
+                    tags,
+                    file_id,
+                    subtitle_id,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(cards)
+    }
+
+    pub fn delete_session_card(&self, card_id: u32) -> Result<(), CoreError> {
+        self.conn.execute(
+            "DELETE FROM session_cards WHERE session_card_id = ?1",
+            rusqlite::params![card_id],
+        )?;
+        Ok(())
+    }
+
+    // -- known words --------------------------------------------------------
+
+    pub fn mark_known(&self, lemma: &str) -> Result<(), CoreError> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO known_words (lemma, added_at) VALUES (?1, ?2)",
+            rusqlite::params![lemma, Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_known_words(&self) -> Result<Vec<String>, CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT lemma FROM known_words ORDER BY lemma")?;
+        let lemmas: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(lemmas)
+    }
+
+    /// Mark `lemma` as known and append it to the plain-text word list at
+    /// `known_path`.
+    pub fn add_known_word(&self, lemma: &str, known_path: &str) -> Result<(), CoreError> {
+        self.mark_known(lemma)?;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(known_path)
+            .map_err(CoreError::WordList)?;
+        writeln!(file, "{lemma}").map_err(CoreError::WordList)?;
+        Ok(())
+    }
+
+    // -- mined vocabulary ---------------------------------------------------
+
+    pub fn add_to_deck(&self, entry: &DeckEntry) -> Result<(), CoreError> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO deck (lemma, surface, meaning, source_sentence, source_file, added_at, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'new')",
+            rusqlite::params![
+                entry.lemma,
+                entry.surface,
+                entry.meaning,
+                entry.source_sentence,
+                entry.source_file,
+                Utc::now().to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Write every lemma with status `'new'` to the plain-text word list at
+    /// `path`, replacing its contents.
+    pub fn sync_wordlist(&self, path: &str) -> Result<(), CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT lemma FROM deck WHERE status = 'new'")?;
+        let lemmas: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut file = fs::File::create(path).map_err(CoreError::WordList)?;
+        for lemma in &lemmas {
+            writeln!(file, "{lemma}").map_err(CoreError::WordList)?;
+        }
+        Ok(())
+    }
+
+    pub fn stats(&self) -> Result<Stats, CoreError> {
+        let total_words: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM deck", [], |row| row.get(0))?;
+        let added_today: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM deck WHERE date(added_at) = date('now')",
+            [],
+            |row| row.get(0),
+        )?;
+        let total_known: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM known_words", [], |row| row.get(0))?;
         Ok(Stats {
             total_words: total_words as usize,
             added_today: added_today as usize,
             total_known: total_known as usize,
         })
     }
-}
-
-pub fn load_known_list(conn: &Connection) -> anyhow::Result<Vec<String>> {
-    let mut stmt = conn.prepare_cached("SELECT lemma FROM known_words ORDER BY lemma")?;
-    let lemmas: Vec<String> = stmt
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(lemmas)
-}
-
-pub fn add_to_deck(conn: &Connection, entry: &DeckEntry) -> anyhow::Result<()> {
-    conn.execute(
-        "INSERT OR IGNORE INTO deck (lemma, surface, meaning, source_sentence, source_file, added_at, status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'new')",
-        rusqlite::params![
-            entry.lemma,
-            entry.surface,
-            entry.meaning,
-            entry.source_sentence,
-            entry.source_file,
-            Utc::now().to_rfc3339(),
-        ],
-    )?;
-    Ok(())
 }
 
 /// Tracks known subtitle lines per source file.
@@ -406,11 +455,14 @@ impl KnownLinesStore {
 mod tests {
     use super::*;
 
+    fn test_store() -> Store {
+        Store::in_memory().expect("open in-memory store")
+    }
+
     #[test]
     fn stats_returns_zero_for_empty_db() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        let stats = Stats::load(&conn).unwrap();
+        let store = test_store();
+        let stats = store.stats().unwrap();
         assert_eq!(stats.total_words, 0);
         assert_eq!(stats.added_today, 0);
         assert_eq!(stats.total_known, 0);
@@ -418,8 +470,7 @@ mod tests {
 
     #[test]
     fn stats_counts_correctly_after_inserts() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
+        let store = test_store();
         let entry = DeckEntry {
             lemma: "먹다".to_string(),
             surface: "먹".to_string(),
@@ -427,7 +478,7 @@ mod tests {
             source_sentence: "나는 밥을 먹는다".to_string(),
             source_file: "test.srt".to_string(),
         };
-        add_to_deck(&conn, &entry).unwrap();
+        store.add_to_deck(&entry).unwrap();
         let entry2 = DeckEntry {
             lemma: "가다".to_string(),
             surface: "가".to_string(),
@@ -435,43 +486,45 @@ mod tests {
             source_sentence: "집에 간다".to_string(),
             source_file: "test.srt".to_string(),
         };
-        add_to_deck(&conn, &entry2).unwrap();
-        mark_known(&conn, "보다").unwrap();
+        store.add_to_deck(&entry2).unwrap();
+        store.mark_known("보다").unwrap();
 
-        let stats = Stats::load(&conn).unwrap();
+        let stats = store.stats().unwrap();
         assert_eq!(stats.total_words, 2);
         assert_eq!(stats.total_known, 1);
     }
 
     #[test]
     fn stats_counts_added_today() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
+        let store = test_store();
         let today = Utc::now().format("%Y-%m-%d").to_string();
         let yesterday = "2000-01-01";
 
-        conn.execute(
-            "INSERT INTO deck (lemma, surface, meaning, added_at, status)
-             VALUES (?1, '', '', ?2, 'new')",
-            rusqlite::params!["오늘단어", format!("{}T12:00:00+00:00", today)],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO deck (lemma, surface, meaning, added_at, status)
-             VALUES (?1, '', '', ?2, 'new')",
-            rusqlite::params!["어제단어", format!("{}T12:00:00+00:00", yesterday)],
-        )
-        .unwrap();
+        store
+            .connection()
+            .execute(
+                "INSERT INTO deck (lemma, surface, meaning, added_at, status)
+                 VALUES (?1, '', '', ?2, 'new')",
+                rusqlite::params!["오늘단어", format!("{}T12:00:00+00:00", today)],
+            )
+            .unwrap();
+        store
+            .connection()
+            .execute(
+                "INSERT INTO deck (lemma, surface, meaning, added_at, status)
+                 VALUES (?1, '', '', ?2, 'new')",
+                rusqlite::params!["어제단어", format!("{}T12:00:00+00:00", yesterday)],
+            )
+            .unwrap();
 
-        let stats = Stats::load(&conn).unwrap();
+        let stats = store.stats().unwrap();
         assert_eq!(stats.total_words, 2);
         assert_eq!(stats.added_today, 1);
     }
 
     #[test]
     fn add_to_deck_persists_entry() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
+        let store = test_store();
         let entry = DeckEntry {
             lemma: "먹다".to_string(),
             surface: "먹".to_string(),
@@ -479,12 +532,14 @@ mod tests {
             source_sentence: "나는 밥을 먹는다".to_string(),
             source_file: "test.srt".to_string(),
         };
-        add_to_deck(&conn, &entry).unwrap();
-        let count: i64 = conn
+        store.add_to_deck(&entry).unwrap();
+        let count: i64 = store
+            .connection()
             .query_row("SELECT COUNT(*) FROM deck", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 1);
-        let lemma: String = conn
+        let lemma: String = store
+            .connection()
             .query_row("SELECT lemma FROM deck", [], |row| row.get(0))
             .unwrap();
         assert_eq!(lemma, "먹다");
@@ -492,10 +547,10 @@ mod tests {
 
     #[test]
     fn mark_known_persists_to_db() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        mark_known(&conn, "먹다").unwrap();
-        let lemma: String = conn
+        let store = test_store();
+        store.mark_known("먹다").unwrap();
+        let lemma: String = store
+            .connection()
             .query_row("SELECT lemma FROM known_words", [], |row| row.get(0))
             .unwrap();
         assert_eq!(lemma, "먹다");
@@ -503,15 +558,17 @@ mod tests {
 
     #[test]
     fn known_add_persists() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
+        let store = test_store();
         let known_path = std::env::temp_dir().join("test_known_add.txt");
         // Remove if left over from previous run
         let _ = std::fs::remove_file(&known_path);
 
-        add_known_word(&conn, "먹다", known_path.to_str().unwrap()).unwrap();
+        store
+            .add_known_word("먹다", known_path.to_str().unwrap())
+            .unwrap();
 
-        let lemma: String = conn
+        let lemma: String = store
+            .connection()
             .query_row("SELECT lemma FROM known_words", [], |row| row.get(0))
             .unwrap();
         assert_eq!(lemma, "먹다");
@@ -522,12 +579,11 @@ mod tests {
 
     #[test]
     fn known_list_returns_added_words() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        mark_known(&conn, "먹다").unwrap();
-        mark_known(&conn, "가다").unwrap();
+        let store = test_store();
+        store.mark_known("먹다").unwrap();
+        store.mark_known("가다").unwrap();
 
-        let words = list_known_words(&conn).unwrap();
+        let words = store.list_known_words().unwrap();
         assert_eq!(words.len(), 2);
         assert!(words.contains(&"먹다".to_string()));
         assert!(words.contains(&"가다".to_string()));
@@ -535,8 +591,7 @@ mod tests {
 
     #[test]
     fn sync_wordlist_appends_lemma() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
+        let store = test_store();
         let entry = DeckEntry {
             lemma: "먹다".to_string(),
             surface: "먹".to_string(),
@@ -544,9 +599,9 @@ mod tests {
             source_sentence: "나는 밥을 먹는다".to_string(),
             source_file: "test.srt".to_string(),
         };
-        add_to_deck(&conn, &entry).unwrap();
+        store.add_to_deck(&entry).unwrap();
         let path = std::env::temp_dir().join("test_wordlist.txt");
-        sync_wordlist(&conn, path.to_str().unwrap()).unwrap();
+        store.sync_wordlist(path.to_str().unwrap()).unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
         assert!(content.lines().any(|l| l == "먹다"));
@@ -554,8 +609,7 @@ mod tests {
 
     #[test]
     fn add_to_deck_twice_does_not_error() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
+        let store = test_store();
         let entry = DeckEntry {
             lemma: "먹다".to_string(),
             surface: "먹".to_string(),
@@ -563,7 +617,7 @@ mod tests {
             source_sentence: "첫 번째 문장".to_string(),
             source_file: "a.srt".to_string(),
         };
-        add_to_deck(&conn, &entry).unwrap();
+        store.add_to_deck(&entry).unwrap();
         let entry2 = DeckEntry {
             lemma: "먹다".to_string(),
             surface: "먹".to_string(),
@@ -571,22 +625,41 @@ mod tests {
             source_sentence: "두 번째 문장".to_string(),
             source_file: "b.srt".to_string(),
         };
-        add_to_deck(&conn, &entry2).unwrap();
-        let count: i64 = conn
+        store.add_to_deck(&entry2).unwrap();
+        let count: i64 = store
+            .connection()
             .query_row("SELECT COUNT(*) FROM deck", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 1);
     }
 
     #[test]
-    fn load_known_list_returns_alphabetical_order() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        mark_known(&conn, "가다").unwrap();
-        mark_known(&conn, "나다").unwrap();
-        mark_known(&conn, "가마").unwrap();
-        let words = load_known_list(&conn).unwrap();
+    fn list_known_words_returns_alphabetical_order() {
+        let store = test_store();
+        store.mark_known("가다").unwrap();
+        store.mark_known("나다").unwrap();
+        store.mark_known("가마").unwrap();
+        let words = store.list_known_words().unwrap();
         assert_eq!(words, vec!["가다", "가마", "나다"]);
+    }
+
+    #[test]
+    fn store_can_be_file_backed() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_store_file_backed.db");
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let store = Store::open(&path).unwrap();
+            store.mark_known("먹다").unwrap();
+        }
+
+        {
+            let store = Store::open(&path).unwrap();
+            assert_eq!(store.list_known_words().unwrap(), vec!["먹다"]);
+        }
+
+        std::fs::remove_file(&path).unwrap();
     }
 
     // -----------------------------------------------------------------------
@@ -692,53 +765,48 @@ mod tests {
 
     #[test]
     fn ensure_default_deck_creates_general_deck_when_empty() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        let id = ensure_default_deck(&conn).unwrap();
+        let store = test_store();
+        let id = store.ensure_default_deck().unwrap();
         assert_eq!(id, DeckId(1));
-        let decks = list_decks(&conn).unwrap();
+        let decks = store.list_decks().unwrap();
         assert_eq!(decks.len(), 1);
         assert_eq!(decks[0].name, "Korean – General");
     }
 
     #[test]
     fn ensure_default_deck_returns_existing_deck() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        let first = ensure_default_deck(&conn).unwrap();
-        let second = ensure_default_deck(&conn).unwrap();
+        let store = test_store();
+        let first = store.ensure_default_deck().unwrap();
+        let second = store.ensure_default_deck().unwrap();
         assert_eq!(first, second);
     }
 
     #[test]
     fn create_deck_returns_id_and_persists() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        let id = create_deck(&conn, "My Deck").unwrap();
+        let store = test_store();
+        let id = store.create_deck("My Deck").unwrap();
         assert_eq!(id, DeckId(1));
-        let deck = get_deck(&conn, id).unwrap().expect("deck should exist");
+        let deck = store.get_deck(id).unwrap().expect("deck should exist");
         assert_eq!(deck.name, "My Deck");
         assert_eq!(deck.id, id);
     }
 
     #[test]
     fn create_deck_multiple_decks_have_unique_ids() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        let id1 = create_deck(&conn, "Deck A").unwrap();
-        let id2 = create_deck(&conn, "Deck B").unwrap();
+        let store = test_store();
+        let id1 = store.create_deck("Deck A").unwrap();
+        let id2 = store.create_deck("Deck B").unwrap();
         assert_ne!(id1, id2);
-        let decks = list_decks(&conn).unwrap();
+        let decks = store.list_decks().unwrap();
         assert_eq!(decks.len(), 2);
     }
 
     #[test]
     fn list_decks_returns_all_decks() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        let _ = create_deck(&conn, "First").unwrap();
-        let _ = create_deck(&conn, "Second").unwrap();
-        let decks = list_decks(&conn).unwrap();
+        let store = test_store();
+        let _ = store.create_deck("First").unwrap();
+        let _ = store.create_deck("Second").unwrap();
+        let decks = store.list_decks().unwrap();
         assert_eq!(decks.len(), 2);
         assert_eq!(decks[0].name, "First");
         assert_eq!(decks[1].name, "Second");
@@ -746,37 +814,33 @@ mod tests {
 
     #[test]
     fn get_deck_returns_none_for_missing_id() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        let result = get_deck(&conn, DeckId(99)).unwrap();
+        let store = test_store();
+        let result = store.get_deck(DeckId(99)).unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn rename_deck_updates_name_but_not_id() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        let id = create_deck(&conn, "Original").unwrap();
-        rename_deck(&conn, id, "Renamed").unwrap();
-        let deck = get_deck(&conn, id).unwrap().unwrap();
+        let store = test_store();
+        let id = store.create_deck("Original").unwrap();
+        store.rename_deck(id, "Renamed").unwrap();
+        let deck = store.get_deck(id).unwrap().unwrap();
         assert_eq!(deck.id, id);
         assert_eq!(deck.name, "Renamed");
     }
 
     #[test]
     fn rename_deck_returns_error_for_missing_deck() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        let result = rename_deck(&conn, DeckId(99), "Nope");
+        let store = test_store();
+        let result = store.rename_deck(DeckId(99), "Nope");
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), CoreError::DeckNotFound(_)));
     }
 
     #[test]
     fn delete_deck_removes_deck_and_its_cards() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        let deck_id = create_deck(&conn, "To Delete").unwrap();
+        let store = test_store();
+        let deck_id = store.create_deck("To Delete").unwrap();
 
         let card = Card {
             card_id: 1,
@@ -788,23 +852,22 @@ mod tests {
             file_id: "f".into(),
             subtitle_id: 1,
         };
-        save_card_to_store(&conn, &card).unwrap();
+        store.save_card(&card).unwrap();
 
-        let cards = list_cards_by_deck(&conn, deck_id).unwrap();
+        let cards = store.list_cards_by_deck(deck_id).unwrap();
         assert_eq!(cards.len(), 1);
 
-        delete_deck(&conn, deck_id).unwrap();
+        store.delete_deck(deck_id).unwrap();
 
-        assert!(get_deck(&conn, deck_id).unwrap().is_none());
-        let cards = list_cards_by_deck(&conn, deck_id).unwrap();
+        assert!(store.get_deck(deck_id).unwrap().is_none());
+        let cards = store.list_cards_by_deck(deck_id).unwrap();
         assert!(cards.is_empty(), "cards should be deleted with deck");
     }
 
     #[test]
-    fn save_card_to_store_persists_card_fields() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        let deck_id = create_deck(&conn, "Test Deck").unwrap();
+    fn save_card_persists_card_fields() {
+        let store = test_store();
+        let deck_id = store.create_deck("Test Deck").unwrap();
 
         let card = Card {
             card_id: 1,
@@ -816,9 +879,9 @@ mod tests {
             file_id: "video-1".into(),
             subtitle_id: 5,
         };
-        save_card_to_store(&conn, &card).unwrap();
+        store.save_card(&card).unwrap();
 
-        let cards = list_cards_by_deck(&conn, deck_id).unwrap();
+        let cards = store.list_cards_by_deck(deck_id).unwrap();
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].sentence, "안녕하세요");
         assert_eq!(cards[0].target, "안녕");
@@ -830,14 +893,12 @@ mod tests {
 
     #[test]
     fn list_cards_by_deck_only_returns_cards_for_that_deck() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        let d1 = create_deck(&conn, "Deck 1").unwrap();
-        let d2 = create_deck(&conn, "Deck 2").unwrap();
+        let store = test_store();
+        let d1 = store.create_deck("Deck 1").unwrap();
+        let d2 = store.create_deck("Deck 2").unwrap();
 
-        save_card_to_store(
-            &conn,
-            &Card {
+        store
+            .save_card(&Card {
                 card_id: 1,
                 deck_id: d1,
                 sentence: "s1".into(),
@@ -846,12 +907,10 @@ mod tests {
                 tags: vec![],
                 file_id: "f".into(),
                 subtitle_id: 1,
-            },
-        )
-        .unwrap();
-        save_card_to_store(
-            &conn,
-            &Card {
+            })
+            .unwrap();
+        store
+            .save_card(&Card {
                 card_id: 1,
                 deck_id: d2,
                 sentence: "s2".into(),
@@ -860,28 +919,25 @@ mod tests {
                 tags: vec![],
                 file_id: "f".into(),
                 subtitle_id: 2,
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
 
-        let cards_d1 = list_cards_by_deck(&conn, d1).unwrap();
+        let cards_d1 = store.list_cards_by_deck(d1).unwrap();
         assert_eq!(cards_d1.len(), 1);
         assert_eq!(cards_d1[0].target, "t1");
 
-        let cards_d2 = list_cards_by_deck(&conn, d2).unwrap();
+        let cards_d2 = store.list_cards_by_deck(d2).unwrap();
         assert_eq!(cards_d2.len(), 1);
         assert_eq!(cards_d2[0].target, "t2");
     }
 
     #[test]
     fn delete_session_card_removes_single_card() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_store(&conn).unwrap();
-        let deck_id = create_deck(&conn, "Test").unwrap();
+        let store = test_store();
+        let deck_id = store.create_deck("Test").unwrap();
 
-        save_card_to_store(
-            &conn,
-            &Card {
+        store
+            .save_card(&Card {
                 card_id: 1,
                 deck_id,
                 sentence: "keep".into(),
@@ -890,12 +946,10 @@ mod tests {
                 tags: vec![],
                 file_id: "f".into(),
                 subtitle_id: 1,
-            },
-        )
-        .unwrap();
-        save_card_to_store(
-            &conn,
-            &Card {
+            })
+            .unwrap();
+        store
+            .save_card(&Card {
                 card_id: 2,
                 deck_id,
                 sentence: "delete".into(),
@@ -904,13 +958,12 @@ mod tests {
                 tags: vec![],
                 file_id: "f".into(),
                 subtitle_id: 2,
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
 
-        delete_session_card(&conn, 2).unwrap();
+        store.delete_session_card(2).unwrap();
 
-        let cards = list_cards_by_deck(&conn, deck_id).unwrap();
+        let cards = store.list_cards_by_deck(deck_id).unwrap();
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].target, "keep");
     }

@@ -2,13 +2,12 @@ use std::fs;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use rusqlite::Connection;
 use tracing_subscriber::EnvFilter;
 
 use kaeda::app;
 use kaeda_core::dictionary;
 use kaeda_core::filter::{FilterConfig, load_frequency_list, load_known_set};
-use kaeda_core::store::{Stats, add_known_word, init_store, list_known_words};
+use kaeda_core::store::Store;
 use kaeda_core::subtitle::entries_from_srt;
 
 #[derive(Parser)]
@@ -70,15 +69,14 @@ fn db_path() -> PathBuf {
     data_dir().join("srt-miner.db")
 }
 
-fn open_db() -> anyhow::Result<Connection> {
+fn open_db() -> anyhow::Result<Store> {
     fs::create_dir_all(data_dir())?;
-    let conn = Connection::open(db_path())?;
-    init_store(&conn)?;
-    Ok(conn)
+    Ok(Store::open(db_path())?)
 }
 
 fn cmd_mine(file: PathBuf) -> anyhow::Result<()> {
-    let conn = open_db()?;
+    let store = open_db()?;
+    let conn = store.connection();
 
     let dict_tsv = data_dir().join("dictionary.tsv");
     if dict_tsv.exists() {
@@ -91,14 +89,14 @@ fn cmd_mine(file: PathBuf) -> anyhow::Result<()> {
 
         if needs_build {
             tracing::info!("Building dictionary index…");
-            dictionary::db::build_index(&conn, dict_tsv.to_string_lossy().as_ref())?;
+            dictionary::db::build_index(conn, dict_tsv.to_string_lossy().as_ref())?;
             let count: i64 = conn
                 .query_row("SELECT COUNT(*) FROM dictionary", [], |row| row.get(0))
                 .unwrap_or(0);
             tracing::info!("Dictionary ready ({count} entries)");
         }
     } else {
-        dictionary::db::ensure_dict_table(&conn)?;
+        dictionary::db::ensure_dict_table(conn)?;
         tracing::info!("No dictionary.tsv found — using online lookups with local caching");
     }
 
@@ -113,12 +111,12 @@ fn cmd_mine(file: PathBuf) -> anyhow::Result<()> {
     let subtitles = entries_from_srt(&file)?;
     let mut state = app::AppState::new(subtitles, file.to_string_lossy().to_string(), &tokenizer);
 
-    app::run(&mut state, &conn, &config)
+    app::run(&mut state, &store, &config)
 }
 
 fn cmd_stats() -> anyhow::Result<()> {
-    let conn = open_db()?;
-    let stats = Stats::load(&conn)?;
+    let store = open_db()?;
+    let stats = store.stats()?;
 
     println!("{:<20} {:>8}", "Metric", "Value");
     println!("{:<20} {:>8}", "──────", "─────");
@@ -130,16 +128,16 @@ fn cmd_stats() -> anyhow::Result<()> {
 }
 
 fn cmd_known_add(word: String) -> anyhow::Result<()> {
-    let conn = open_db()?;
+    let store = open_db()?;
     let known_path = data_dir().join("known.txt");
-    add_known_word(&conn, &word, &known_path.to_string_lossy())?;
+    store.add_known_word(&word, &known_path.to_string_lossy())?;
     println!("marked '{word}' as known");
     Ok(())
 }
 
 fn cmd_known_list() -> anyhow::Result<()> {
-    let conn = open_db()?;
-    let words = list_known_words(&conn)?;
+    let store = open_db()?;
+    let words = store.list_known_words()?;
     for lemma in &words {
         println!("{lemma}");
     }

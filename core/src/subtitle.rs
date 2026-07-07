@@ -26,6 +26,8 @@ pub enum CoreError {
     Network(String),
     #[error("failed to write export file: {0}")]
     Export(String),
+    #[error("failed to write word list file: {0}")]
+    WordList(std::io::Error),
     #[error("card with id {0} not found")]
     CardNotFound(u32),
     #[error("deck with id {0} not found")]

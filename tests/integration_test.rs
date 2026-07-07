@@ -1,12 +1,11 @@
 use kaeda::app::{Action, AppState, handle_key};
 use kaeda_core::dictionary::db::build_index;
-use kaeda_core::store::{DeckEntry, add_to_deck, init_store};
+use kaeda_core::store::{DeckEntry, Store};
 use kaeda_core::subtitle::entries_from_srt;
 use kaeda_core::tokenizer::korean::KoreanTokenizer;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::KeyCode;
-use rusqlite::Connection;
 
 #[test]
 fn full_session_smoke_test() {
@@ -14,11 +13,10 @@ fn full_session_smoke_test() {
     let subtitles = entries_from_srt("tests/fixtures/sample.srt".as_ref()).unwrap();
     let mut state = AppState::new(subtitles, "sample.srt".to_string(), &tokenizer);
 
-    let conn = Connection::open_in_memory().unwrap();
-    build_index(&conn, "tests/fixtures/dict_sample.tsv").unwrap();
-    init_store(&conn).unwrap();
+    let store = Store::in_memory().unwrap();
+    build_index(store.connection(), "tests/fixtures/dict_sample.tsv").unwrap();
 
-    state.update_definition(&conn);
+    state.update_definition(store.connection());
 
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).unwrap();
@@ -48,11 +46,11 @@ fn full_session_smoke_test() {
                 source_sentence: source,
                 source_file: state.source_file.clone(),
             };
-            add_to_deck(&conn, &entry).unwrap();
+            store.add_to_deck(&entry).unwrap();
             state.deck_count = state.deck_count.saturating_add(1);
             state.next_subtitle();
         }
-        state.update_definition(&conn);
+        state.update_definition(store.connection());
         terminal.draw(|f| state.draw(f)).unwrap();
 
         if action == Action::Quit {
@@ -60,7 +58,8 @@ fn full_session_smoke_test() {
         }
     }
 
-    let count: i64 = conn
+    let count: i64 = store
+        .connection()
         .query_row("SELECT COUNT(*) FROM deck", [], |row| row.get(0))
         .unwrap();
     assert_eq!(count, 1);

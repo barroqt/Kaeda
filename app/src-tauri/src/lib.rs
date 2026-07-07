@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use kaeda_core::deck::{self, DeckId};
 use kaeda_core::dictionary;
 use kaeda_core::session::{Card, Session};
-use kaeda_core::store::{self, KnownLinesStore};
+use kaeda_core::store::{KnownLinesStore, Store};
 use kaeda_core::subtitle::{
     SubtitleEntry, SubtitleSource, build_translation_span, prepare_session_subtitles,
     srt_timestamp_to_ms,
@@ -115,7 +115,7 @@ struct MiningSessionInner {
     known_ids: HashSet<i64>,
     source_file_id: String,
     video_path: String,
-    card_store: Option<Connection>,
+    card_store: Option<Store>,
 }
 
 pub struct MiningSessionState {
@@ -154,7 +154,7 @@ impl MiningSessionState {
         source_file_id: String,
         known_store: KnownLinesStore,
         video_path: String,
-        card_store: Connection,
+        card_store: Store,
     ) -> Result<(), String> {
         if subtitles.is_empty() {
             return Err("no subtitles found in file".to_string());
@@ -199,9 +199,9 @@ impl MiningSessionState {
             video_path: Some(PathBuf::from(&video_path)),
         };
         let subtitles = prepare_session_subtitles(source).map_err(|e| e.to_string())?;
-        let card_store = Connection::open_in_memory().map_err(|e| e.to_string())?;
-        store::init_store(&card_store).map_err(|e| e.to_string())?;
-        let deck_id = store::get_or_create_deck_by_name(&card_store, &deck_name)
+        let card_store = Store::in_memory().map_err(|e| e.to_string())?;
+        let deck_id = card_store
+            .get_or_create_deck_by_name(&deck_name)
             .map_err(|e| e.to_string())?;
         self.init_with_subtitles(
             subtitles,
@@ -224,9 +224,9 @@ impl MiningSessionState {
             video_path: PathBuf::from(&video_path),
         };
         let subtitles = prepare_session_subtitles(source).map_err(|e| e.to_string())?;
-        let card_store = Connection::open_in_memory().map_err(|e| e.to_string())?;
-        store::init_store(&card_store).map_err(|e| e.to_string())?;
-        let deck_id = store::get_or_create_deck_by_name(&card_store, &deck_name)
+        let card_store = Store::in_memory().map_err(|e| e.to_string())?;
+        let deck_id = card_store
+            .get_or_create_deck_by_name(&deck_name)
             .map_err(|e| e.to_string())?;
         self.init_with_subtitles(
             subtitles,
@@ -332,7 +332,7 @@ impl MiningSessionState {
         };
         let saved = session.add_card(card);
         if let Some(ref card_store) = inner.card_store {
-            let _ = store::save_card_to_store(card_store, &saved);
+            let _ = card_store.save_card(&saved);
         }
         Ok(CardDto::from(saved))
     }
@@ -389,7 +389,8 @@ impl MiningSessionState {
         let inner = self.inner.lock().map_err(|e| e.to_string())?;
         let session = inner.session.as_ref().ok_or("no active session")?;
         let store = inner.card_store.as_ref().ok_or("no card store")?;
-        let deck = store::get_deck(store, session.deck_id)
+        let deck = store
+            .get_deck(session.deck_id)
             .map_err(|e| e.to_string())?
             .ok_or("deck not found")?;
         Ok(deck.name)
@@ -860,7 +861,7 @@ pub struct AppSettingsState {
 
 struct DeckStateInner {
     active_deck_id: DeckId,
-    store: Connection,
+    store: Store,
 }
 
 pub struct DeckState {
@@ -868,7 +869,7 @@ pub struct DeckState {
 }
 
 impl DeckState {
-    pub fn new(store: Connection, active_deck_id: DeckId) -> Self {
+    pub fn new(store: Store, active_deck_id: DeckId) -> Self {
         Self {
             inner: Mutex::new(DeckStateInner {
                 active_deck_id,
@@ -890,14 +891,18 @@ impl DeckState {
 
     pub fn list_decks(&self) -> Result<Vec<DeckDto>, AppError> {
         let inner = self.lock()?;
-        store::list_decks(&inner.store)
+        inner
+            .store
+            .list_decks()
             .map(|decks| decks.into_iter().map(DeckDto::from).collect())
             .map_err(|e| AppError::session_error(e.to_string()))
     }
 
     pub fn active_deck(&self) -> Result<DeckDto, AppError> {
         let inner = self.lock()?;
-        let deck = store::get_deck(&inner.store, inner.active_deck_id)
+        let deck = inner
+            .store
+            .get_deck(inner.active_deck_id)
             .map_err(|e| AppError::session_error(e.to_string()))?
             .ok_or_else(|| AppError::deck_not_found(inner.active_deck_id.0))?;
         Ok(DeckDto::from(deck))
@@ -907,7 +912,9 @@ impl DeckState {
     /// responsible for persisting the new active deck to the config file.
     pub fn set_active_deck(&self, deck_id: DeckId) -> Result<(), AppError> {
         let mut inner = self.lock()?;
-        store::get_deck(&inner.store, deck_id)
+        inner
+            .store
+            .get_deck(deck_id)
             .map_err(|e| AppError::session_error(e.to_string()))?
             .ok_or_else(|| AppError::deck_not_found(deck_id.0))?;
         inner.active_deck_id = deck_id;
@@ -1027,19 +1034,19 @@ pub fn run() {
 
             // Deck store
             let deck_store_path = app_data_dir.join("decks.db");
-            let deck_conn = Connection::open(&deck_store_path).expect("failed to open deck store");
-            store::init_store(&deck_conn).expect("failed to init deck store");
-            let default_deck_id =
-                store::ensure_default_deck(&deck_conn).expect("failed to ensure default deck");
+            let deck_store = Store::open(&deck_store_path).expect("failed to open deck store");
+            let default_deck_id = deck_store
+                .ensure_default_deck()
+                .expect("failed to ensure default deck");
 
             let deck_config_path = app_data_dir.join("deck_config.json");
             let active_deck_id = load_deck_config(&deck_config_path)
-                .filter(|id| store::get_deck(&deck_conn, *id).ok().flatten().is_some())
+                .filter(|id| deck_store.get_deck(*id).ok().flatten().is_some())
                 .unwrap_or(default_deck_id);
 
             info!("active deck: id={}", active_deck_id.0);
 
-            app.manage(DeckState::new(deck_conn, active_deck_id));
+            app.manage(DeckState::new(deck_store, active_deck_id));
 
             Ok(())
         })
@@ -2334,11 +2341,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
         let _ = std::fs::remove_file(&config_path);
 
-        let conn = Connection::open(&db_path).unwrap();
-        store::init_store(&conn).unwrap();
-        let default_id = store::ensure_default_deck(&conn).unwrap();
+        let store = Store::open(&db_path).unwrap();
+        let default_id = store.ensure_default_deck().unwrap();
 
-        let decks = store::list_decks(&conn).unwrap();
+        let decks = store.list_decks().unwrap();
         assert_eq!(decks.len(), 1);
         assert_eq!(decks[0].name, "Korean – General");
         assert_eq!(default_id, decks[0].id);
@@ -2358,10 +2364,9 @@ mod tests {
         let _ = std::fs::remove_file(&config_path);
 
         // Set up deck store with two decks
-        let conn = Connection::open(&db_path).unwrap();
-        store::init_store(&conn).unwrap();
-        let deck_a = store::create_deck(&conn, "Deck A").unwrap();
-        let deck_b = store::create_deck(&conn, "Deck B").unwrap();
+        let store = Store::open(&db_path).unwrap();
+        let deck_a = store.create_deck("Deck A").unwrap();
+        let deck_b = store.create_deck("Deck B").unwrap();
         assert_ne!(deck_a, deck_b);
 
         // Save deck_b as active
@@ -2409,24 +2414,22 @@ mod tests {
 
     #[test]
     fn create_deck_increases_deck_count() {
-        let conn = Connection::open_in_memory().unwrap();
-        store::init_store(&conn).unwrap();
-        let _default = store::ensure_default_deck(&conn).unwrap();
+        let store = Store::in_memory().unwrap();
+        let _default = store.ensure_default_deck().unwrap();
 
-        let count_before = store::deck_count(&conn).unwrap();
-        store::create_deck(&conn, "New Deck").unwrap();
-        let count_after = store::deck_count(&conn).unwrap();
+        let count_before = store.deck_count().unwrap();
+        store.create_deck("New Deck").unwrap();
+        let count_after = store.deck_count().unwrap();
         assert_eq!(count_after, count_before + 1);
     }
 
     #[test]
     fn set_active_deck_persists_through_state() {
-        let conn = Connection::open_in_memory().unwrap();
-        store::init_store(&conn).unwrap();
-        let default_id = store::ensure_default_deck(&conn).unwrap();
-        let deck_id = store::create_deck(&conn, "Custom Deck").unwrap();
+        let store = Store::in_memory().unwrap();
+        let default_id = store.ensure_default_deck().unwrap();
+        let deck_id = store.create_deck("Custom Deck").unwrap();
 
-        let state = DeckState::new(conn, default_id);
+        let state = DeckState::new(store, default_id);
 
         state.set_active_deck(deck_id).unwrap();
 
@@ -2435,11 +2438,10 @@ mod tests {
 
     #[test]
     fn set_active_deck_rejects_unknown_deck() {
-        let conn = Connection::open_in_memory().unwrap();
-        store::init_store(&conn).unwrap();
-        let default_id = store::ensure_default_deck(&conn).unwrap();
+        let store = Store::in_memory().unwrap();
+        let default_id = store.ensure_default_deck().unwrap();
 
-        let state = DeckState::new(conn, default_id);
+        let state = DeckState::new(store, default_id);
 
         assert!(state.set_active_deck(DeckId(9999)).is_err());
         assert_eq!(state.active_deck_id().unwrap(), default_id);
@@ -2447,11 +2449,10 @@ mod tests {
 
     #[test]
     fn create_deck_makes_new_deck_active() {
-        let conn = Connection::open_in_memory().unwrap();
-        store::init_store(&conn).unwrap();
-        let default_id = store::ensure_default_deck(&conn).unwrap();
+        let store = Store::in_memory().unwrap();
+        let default_id = store.ensure_default_deck().unwrap();
 
-        let state = DeckState::new(conn, default_id);
+        let state = DeckState::new(store, default_id);
 
         let deck = state.create_deck("New Deck").unwrap();
         assert_eq!(deck.name, "New Deck");
@@ -2461,11 +2462,10 @@ mod tests {
 
     #[test]
     fn create_deck_rejects_blank_name() {
-        let conn = Connection::open_in_memory().unwrap();
-        store::init_store(&conn).unwrap();
-        let default_id = store::ensure_default_deck(&conn).unwrap();
+        let store = Store::in_memory().unwrap();
+        let default_id = store.ensure_default_deck().unwrap();
 
-        let state = DeckState::new(conn, default_id);
+        let state = DeckState::new(store, default_id);
 
         assert!(state.create_deck("   ").is_err());
         assert_eq!(state.list_decks().unwrap().len(), 1);
@@ -2473,12 +2473,11 @@ mod tests {
 
     #[test]
     fn deleting_active_deck_reassigns_to_another_deck() {
-        let conn = Connection::open_in_memory().unwrap();
-        store::init_store(&conn).unwrap();
-        let default_id = store::ensure_default_deck(&conn).unwrap();
-        let extra_id = store::create_deck(&conn, "Extra Deck").unwrap();
+        let store = Store::in_memory().unwrap();
+        let default_id = store.ensure_default_deck().unwrap();
+        let extra_id = store.create_deck("Extra Deck").unwrap();
 
-        let state = DeckState::new(conn, extra_id);
+        let state = DeckState::new(store, extra_id);
 
         let reassigned = state.delete_deck(extra_id).unwrap();
 
@@ -2489,12 +2488,11 @@ mod tests {
 
     #[test]
     fn deleting_inactive_deck_keeps_active_deck() {
-        let conn = Connection::open_in_memory().unwrap();
-        store::init_store(&conn).unwrap();
-        let default_id = store::ensure_default_deck(&conn).unwrap();
-        let extra_id = store::create_deck(&conn, "Extra Deck").unwrap();
+        let store = Store::in_memory().unwrap();
+        let default_id = store.ensure_default_deck().unwrap();
+        let extra_id = store.create_deck("Extra Deck").unwrap();
 
-        let state = DeckState::new(conn, default_id);
+        let state = DeckState::new(store, default_id);
 
         let reassigned = state.delete_deck(extra_id).unwrap();
 
