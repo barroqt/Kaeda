@@ -1,5 +1,6 @@
 pub mod deck;
 pub mod dictionary;
+#[cfg(feature = "embedded-subtitles")]
 pub mod embedded_subtitles;
 pub mod expression;
 pub mod ffmpeg;

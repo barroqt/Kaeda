@@ -14,4 +14,9 @@ lindera = "3.0.7"
 lindera-ko-dic = { version = "3.0.7", features = ["embed-ko-dic"] }
 rusqlite = "0.39.0"
 ureq = "3"
-unbundle = "5"
+# Links native FFmpeg (ffmpeg-sys-next); release builds must stay
+# self-contained, so this is opt-in until app-side bundling is solved.
+unbundle = { version = "5", optional = true }
+
+[features]
+embedded-subtitles = ["dep:unbundle"]

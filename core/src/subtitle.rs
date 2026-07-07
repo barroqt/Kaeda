@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::deck::DeckId;
+#[cfg(feature = "embedded-subtitles")]
 use crate::embedded_subtitles;
 use crate::ffmpeg;
 use crate::util::strip_html_tags;
@@ -61,6 +62,9 @@ pub enum ExtractError {
     Parse(String),
     #[error("ffmpeg extraction failed: {source}")]
     FfmpegFailed { source: ffmpeg::FfmpegExtractError },
+    #[error("embedded subtitle extraction requires the ffmpeg binary on PATH")]
+    FfmpegNotAvailable,
+    #[cfg(feature = "embedded-subtitles")]
     #[error("embedded subtitle extraction failed: {source}")]
     EmbeddedExtractionFailed {
         source: embedded_subtitles::SubtitleExtractError,
@@ -95,31 +99,54 @@ pub(crate) fn prepare_session_subtitles_impl(
                 other => ExtractError::Parse(other.to_string()),
             })
         }
-        SubtitleSource::Embedded { video_path } => {
-            match embedded_subtitles::extract_to_srt(&video_path) {
-                Ok(srt_path) => parse_and_cleanup(&srt_path),
-                Err(err) if err.is_retryable_with_ffmpeg() => {
-                    let ffmpeg_ok = ffmpeg_binary
-                        .map(ffmpeg::command_available)
-                        .unwrap_or(false);
-                    if ffmpeg_ok {
-                        match ffmpeg::extract_with_ffmpeg_impl(
-                            ffmpeg_binary.unwrap(),
-                            &video_path,
-                            None,
-                            &std::env::temp_dir(),
-                        ) {
-                            Ok(srt_path) => parse_and_cleanup(&srt_path),
-                            Err(ff_err) => Err(ExtractError::FfmpegFailed { source: ff_err }),
-                        }
-                    } else {
-                        Err(ExtractError::EmbeddedExtractionFailed { source: err })
-                    }
+        SubtitleSource::Embedded { video_path } => extract_embedded_srt(&video_path, ffmpeg_binary)
+            .and_then(|srt_path| parse_and_cleanup(&srt_path)),
+    }
+}
+
+/// Extract embedded subtitles to a temporary SRT file using the ffmpeg
+/// binary on PATH, or fail with [`ExtractError::FfmpegNotAvailable`].
+fn ffmpeg_cli_extract(
+    video_path: &Path,
+    ffmpeg_binary: Option<&str>,
+) -> Result<PathBuf, ExtractError> {
+    let Some(binary) = ffmpeg_binary.filter(|b| ffmpeg::command_available(b)) else {
+        return Err(ExtractError::FfmpegNotAvailable);
+    };
+    ffmpeg::extract_with_ffmpeg_impl(binary, video_path, None, &std::env::temp_dir())
+        .map_err(|source| ExtractError::FfmpegFailed { source })
+}
+
+/// Try in-process extraction via `unbundle` first, falling back to the
+/// ffmpeg binary for retryable failures.
+#[cfg(feature = "embedded-subtitles")]
+fn extract_embedded_srt(
+    video_path: &Path,
+    ffmpeg_binary: Option<&str>,
+) -> Result<PathBuf, ExtractError> {
+    match embedded_subtitles::extract_to_srt(video_path) {
+        Ok(srt_path) => Ok(srt_path),
+        Err(err) if err.is_retryable_with_ffmpeg() => {
+            match ffmpeg_cli_extract(video_path, ffmpeg_binary) {
+                Err(ExtractError::FfmpegNotAvailable) => {
+                    Err(ExtractError::EmbeddedExtractionFailed { source: err })
                 }
-                Err(err) => Err(ExtractError::EmbeddedExtractionFailed { source: err }),
+                other => other,
             }
         }
+        Err(err) => Err(ExtractError::EmbeddedExtractionFailed { source: err }),
     }
+}
+
+/// Without the `embedded-subtitles` feature, extraction relies solely on
+/// the ffmpeg binary; release builds ship this variant to avoid linking
+/// native FFmpeg libraries.
+#[cfg(not(feature = "embedded-subtitles"))]
+fn extract_embedded_srt(
+    video_path: &Path,
+    ffmpeg_binary: Option<&str>,
+) -> Result<PathBuf, ExtractError> {
+    ffmpeg_cli_extract(video_path, ffmpeg_binary)
 }
 
 pub fn entries_from_srt(path: &Path) -> Result<Vec<SubtitleEntry>, CoreError> {
@@ -344,6 +371,7 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
     }
 
+    #[cfg(feature = "embedded-subtitles")]
     #[test]
     fn prepare_session_subtitles_embedded_missing_file_without_ffmpeg_fallback() {
         let source = SubtitleSource::Embedded {
@@ -360,6 +388,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "embedded-subtitles")]
     #[test]
     fn prepare_session_subtitles_embedded_no_ffmpeg_binary_returns_embedded_error() {
         let source = SubtitleSource::Embedded {
@@ -373,6 +402,32 @@ mod tests {
                 ExtractError::EmbeddedExtractionFailed { .. }
             ),
             "expected EmbeddedExtractionFailed when ffmpeg binary does not exist"
+        );
+    }
+
+    #[cfg(not(feature = "embedded-subtitles"))]
+    #[test]
+    fn prepare_session_subtitles_embedded_without_feature_requires_ffmpeg() {
+        let source = SubtitleSource::Embedded {
+            video_path: PathBuf::from("/nonexistent/video.mkv"),
+        };
+        let result = prepare_session_subtitles_impl(source, Some("nonexistent_ffmpeg_xyz"));
+        assert!(
+            matches!(result, Err(ExtractError::FfmpegNotAvailable)),
+            "expected FfmpegNotAvailable when built without embedded-subtitles and ffmpeg is missing"
+        );
+    }
+
+    #[cfg(not(feature = "embedded-subtitles"))]
+    #[test]
+    fn prepare_session_subtitles_embedded_without_feature_and_no_binary_requires_ffmpeg() {
+        let source = SubtitleSource::Embedded {
+            video_path: PathBuf::from("/nonexistent/video.mkv"),
+        };
+        let result = prepare_session_subtitles_impl(source, None);
+        assert!(
+            matches!(result, Err(ExtractError::FfmpegNotAvailable)),
+            "expected FfmpegNotAvailable when built without embedded-subtitles and no binary is configured"
         );
     }
 
