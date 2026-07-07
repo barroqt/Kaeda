@@ -65,6 +65,26 @@ edit them on the GitHub Releases page before publishing.
    important upgrade notes.
 4. Publish.
 
+### 5. Update the website download links
+
+The download buttons on the website read their URLs from
+`website/release.json` at page load. After publishing the release:
+
+1. Edit `website/release.json` and update, for **every** entry:
+   - `version` and `tag` at the top.
+   - Each `assets.*.url` — replace the old tag with the new one in both
+     the path segment (`download/vX.Y.Z/`) and the archive filename
+     (`kaeda-vX.Y.Z-<target>.tar.gz`).
+2. Verify each URL downloads the right asset (open it in a browser or
+   `curl -IL <url>` and check for a `200`).
+3. Commit and push. Any push to `main` touching `website/**` triggers the
+   **Deploy website** workflow (`.github/workflows/deploy-website.yml`),
+   which republishes the site to GitHub Pages automatically.
+4. Once deployed, click each download button on the live site and confirm
+   it downloads the new version directly (no GitHub page in between). If
+   `release.json` fails to load, the buttons fall back to the GitHub
+   "latest release" page.
+
 ## Experimental status (Linux)
 
 Linux builds are marked **EXPERIMENTAL**. The `VERSION` metadata file and

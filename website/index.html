@@ -153,6 +153,9 @@
     }
     .btn-download:hover { background: var(--crimson); }
     .btn-download span { display: block; font-size: 0.7rem; opacity: 0.7; font-weight: 400; }
+    .releases-link { text-align: center; margin-top: 2.5rem; font-size: 0.8rem; color: var(--muted); }
+    .releases-link a { color: var(--muted); text-decoration: underline; transition: 0.2s; }
+    .releases-link a:hover { color: var(--pink); }
 
     /* ── CONTACT SECTION ── */
     .contact-container { text-align: center; max-width: 800px; margin: 0 auto; }
@@ -374,10 +377,15 @@
     <div class="download-card">
       <h3>Linux</h3>
       <div class="download-options">
-        <a href="#" data-asset="linux" class="btn-download">Download for Linux</a>
+        <a href="#" data-asset="linux" class="btn-download">Download for Linux <span>experimental</span></a>
       </div>
     </div>
   </div>
+
+  <p class="releases-link">
+    Advanced users:
+    <a href="https://github.com/barroqt/kaeda/releases" target="_blank" rel="noopener">View all releases on GitHub</a>
+  </p>
 </section>
 
 <section class="section" id="contact" style="background: #1a1c24;">
@@ -427,8 +435,9 @@ async function populateDownloads() {
       if (btn) btn.href = asset.url;
     }
   } catch {
-    const btn = document.querySelector('.btn-download');
-    if (btn) btn.href = 'https://github.com/barroqt/kaeda/releases/latest';
+    for (const btn of document.querySelectorAll('.btn-download')) {
+      btn.href = 'https://github.com/barroqt/kaeda/releases/latest';
+    }
   }
 }
 populateDownloads();
