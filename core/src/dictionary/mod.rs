@@ -7,7 +7,7 @@ use crate::subtitle::CoreError;
 
 /// Formats a dictionary entry as `"(POS) definition"` when a part of
 /// speech is available, or just the definition text otherwise.
-fn format_explanation(entry: &db::DictEntry) -> String {
+pub fn format_explanation(entry: &db::DictEntry) -> String {
     if entry.pos.is_empty() || entry.pos == "—" {
         entry.meaning.clone()
     } else {

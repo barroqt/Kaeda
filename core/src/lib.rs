@@ -1,6 +1,7 @@
 pub mod deck;
 pub mod dictionary;
 pub mod embedded_subtitles;
+pub mod expression;
 pub mod ffmpeg;
 pub mod filter;
 pub mod parser;

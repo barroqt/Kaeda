@@ -146,6 +146,23 @@ mod tests {
     }
 
     #[test]
+    fn cached_phrase_lookup_hits_without_network() {
+        let conn = Connection::open_in_memory().unwrap();
+        let entry = DictEntry {
+            lemma: "마음에 들다".to_string(),
+            meaning: "to be liked".to_string(),
+            pos: "Verb".to_string(),
+            examples: vec![],
+        };
+        cache_entry(&conn, &entry).unwrap();
+        let found = lookup(&conn, "마음에 들다")
+            .unwrap()
+            .expect("phrase should be a legal cache key");
+        assert_eq!(found.lemma, "마음에 들다");
+        assert_eq!(found.meaning, "to be liked");
+    }
+
+    #[test]
     fn lookup_or_fetch_falls_back_to_seed() {
         let conn = Connection::open_in_memory().unwrap();
         let path = fixture_path("dict_sample.tsv");

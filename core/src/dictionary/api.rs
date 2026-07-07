@@ -143,6 +143,27 @@ impl TryFrom<NaverResponse> for DictEntry {
     }
 }
 
+/// Whether a Naver headword matches the queried term, ignoring whitespace
+/// differences. Guards against Naver collapsing phrase queries to the first
+/// single-word item (PRD §6.3).
+fn entry_matches_query(headword: &str, query: &str) -> bool {
+    headword.split_whitespace().eq(query.split_whitespace())
+}
+
+/// Selects the dictionary entry for `query` from a parsed Naver response,
+/// rejecting entries whose headword does not match the queried term.
+/// An empty headword is backfilled with the query (as before validation
+/// there is nothing to compare).
+fn entry_from_response(response: NaverResponse, query: &str) -> Option<DictEntry> {
+    let mut entry = DictEntry::try_from(response).ok()?;
+    if entry.lemma.is_empty() {
+        entry.lemma = query.to_string();
+    } else if !entry_matches_query(&entry.lemma, query) {
+        return None;
+    }
+    Some(entry)
+}
+
 pub fn search_naver(word: &str) -> Result<Option<DictEntry>, anyhow::Error> {
     let response = ureq::get("https://en.dict.naver.com/api3/koen/search")
         .header("Referer", "https://en.dict.naver.com")
@@ -155,16 +176,7 @@ pub fn search_naver(word: &str) -> Result<Option<DictEntry>, anyhow::Error> {
     let body = response.into_body().read_to_string()?;
     let parsed: NaverResponse = serde_json::from_str(&body)?;
 
-    let mut entry = match DictEntry::try_from(parsed) {
-        Ok(entry) => entry,
-        Err(NoWordItem) => return Ok(None),
-    };
-
-    if entry.lemma.is_empty() {
-        entry.lemma = word.to_string();
-    }
-
-    Ok(Some(entry))
+    Ok(entry_from_response(parsed, word))
 }
 
 #[cfg(test)]
@@ -298,6 +310,45 @@ mod tests {
         };
         let entry = DictEntry::from(item);
         assert_eq!(entry.meaning, "love &amp; peace");
+    }
+
+    fn response_with_headword(headword: &str) -> NaverResponse {
+        serde_json::from_str(&format!(
+            r#"{{
+            "searchResultMap": {{
+                "searchResultListMap": {{
+                    "WORD": {{
+                        "items": [{{
+                            "handleEntry": "{headword}",
+                            "meansCollector": [{{
+                                "partOfSpeech": "동사",
+                                "means": [{{ "value": "to be liked" }}]
+                            }}]
+                        }}]
+                    }}
+                }}
+            }}
+        }}"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn naver_entry_rejected_when_headword_differs_from_query() {
+        // Naver collapses phrase queries to the first single-word item.
+        let response = response_with_headword("마음");
+        assert!(entry_from_response(response, "마음에 들다").is_none());
+    }
+
+    #[test]
+    fn naver_entry_accepted_when_headword_matches_query_whitespace_normalized() {
+        let response = response_with_headword("마음에  들다 ");
+        let entry = entry_from_response(response, "마음에 들다").expect("entry should be accepted");
+        assert_eq!(entry.meaning, "to be liked");
+
+        assert!(entry_matches_query("마음에 들다", "마음에 들다"));
+        assert!(entry_matches_query(" 마음에  들다", "마음에 들다"));
+        assert!(!entry_matches_query("마음", "마음에 들다"));
     }
 
     #[test]
