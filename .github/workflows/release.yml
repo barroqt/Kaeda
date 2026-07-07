@@ -19,7 +19,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-13
+          # macos-13 (the last x86_64 image under the old naming) was
+          # retired by GitHub in Dec 2025; macos-15-intel is its successor.
+          - os: macos-15-intel
             name: macOS (x86_64)
           - os: macos-latest
             name: macOS (ARM)
