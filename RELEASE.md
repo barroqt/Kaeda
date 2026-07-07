@@ -51,19 +51,17 @@ Pushing the tag triggers the **Release** workflow
 | Windows     | CLI binary (`kaeda.exe`) + `.msi` + NSIS `.exe`          |
 
 All artifacts are packed into a versioned archive
-(`kaeda-vX.Y.Z-<target>.tar.gz` or `.zip`) and uploaded to the GitHub
-Release draft.
+(`kaeda-vX.Y.Z-<target>.tar.gz`) and uploaded to a GitHub Release that CI
+**publishes directly** (no draft step). Release notes are auto-generated
+from commits since the last tag.
 
-Release notes are auto-generated from commits since the last tag. You can
-edit them on the GitHub Releases page before publishing.
-
-### 4. Publish the release
+### 4. Review the release
 
 1. Go to **https://github.com/barroqt/kaeda/releases**
-2. Find the draft created by CI.
-3. Review the auto-generated release notes — add highlights, known issues,
+2. Open the release created by CI and confirm all four platform archives
+   are attached.
+3. Edit the auto-generated notes — add highlights, known issues,
    important upgrade notes.
-4. Publish.
 
 ### 5. Update the website download links
 
@@ -101,5 +99,5 @@ git tag -a "vX.Y.Z-rc1" -m "vX.Y.Z release candidate 1"
 git push origin "vX.Y.Z-rc1"
 ```
 
-The CI workflow will run and upload artifacts. GitHub drafts the release
-(as a pre-release if you mark it during publish).
+The CI workflow will run, upload artifacts, and publish the release. Mark
+it as a pre-release afterwards on the GitHub Releases page.
