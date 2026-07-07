@@ -62,6 +62,21 @@ from commits since the last tag.
    are attached.
 3. Edit the auto-generated notes — add highlights, known issues,
    important upgrade notes.
+4. Include the macOS Gatekeeper notice (see below) in the notes — macOS
+   builds are ad-hoc signed, not notarized, so Gatekeeper blocks them on
+   first launch.
+
+#### macOS Gatekeeper notice (paste into release notes)
+
+> **macOS users:** the app is not yet notarized by Apple, so macOS will
+> say it "could not be verified". To open it, try launching it once, then
+> go to **System Settings → Privacy & Security** and click **Open
+> Anyway**. Alternatively, run
+> `xattr -dr com.apple.quarantine /Applications/Kaeda.app` in Terminal.
+
+Removing this notice (and the matching `.download-note` on the website)
+requires signing with a Developer ID certificate and notarizing in CI,
+which needs an Apple Developer Program membership.
 
 ### 5. Update the website download links
 

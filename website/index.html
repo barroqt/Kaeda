@@ -153,6 +153,11 @@
     }
     .btn-download:hover { background: var(--crimson); }
     .btn-download span { display: block; font-size: 0.7rem; opacity: 0.7; font-weight: 400; }
+    .download-note { margin-top: 1.25rem; font-size: 0.75rem; line-height: 1.5; color: var(--muted); text-align: left; }
+    .download-note code {
+      font-family: monospace; font-size: 0.7rem; background: rgba(255, 255, 255, 0.06);
+      padding: 0.1rem 0.3rem; border-radius: 4px; word-break: break-all;
+    }
     .releases-link { text-align: center; margin-top: 2.5rem; font-size: 0.8rem; color: var(--muted); }
     .releases-link a { color: var(--muted); text-decoration: underline; transition: 0.2s; }
     .releases-link a:hover { color: var(--pink); }
@@ -367,6 +372,14 @@
         <a href="https://github.com/barroqt/kaeda/releases/download/v0.2.0/kaeda-v0.2.0-aarch64-apple-darwin.tar.gz" data-asset="macos-arm" class="btn-download">Download for Apple Silicon</a>
         <a href="https://github.com/barroqt/kaeda/releases/download/v0.2.0/kaeda-v0.2.0-x86_64-apple-darwin.tar.gz" data-asset="macos-intel" class="btn-download">Download for Intel</a>
       </div>
+      <p class="download-note">
+        macOS will say the app "could not be verified" because Kaeda is not
+        yet notarized by Apple. To open it: try to launch it once, then go to
+        <strong>System&nbsp;Settings → Privacy&nbsp;&amp;&nbsp;Security</strong>
+        and click <strong>Open&nbsp;Anyway</strong>. Or run
+        <code>xattr -dr com.apple.quarantine /Applications/Kaeda.app</code>
+        in Terminal.
+      </p>
     </div>
     <div class="download-card">
       <h3>Windows</h3>
