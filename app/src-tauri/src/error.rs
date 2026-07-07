@@ -56,6 +56,13 @@ impl AppError {
         }
     }
 
+    pub fn expression_not_found(id: i64) -> Self {
+        Self {
+            code: "EXPRESSION_NOT_FOUND",
+            message: format!("Expression with id {id} not found"),
+        }
+    }
+
     fn invalid_deck_name() -> Self {
         Self {
             code: "INVALID_DECK_NAME",

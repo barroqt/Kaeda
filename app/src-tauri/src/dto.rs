@@ -105,6 +105,33 @@ pub struct DeckDto {
     pub name: String,
 }
 
+/// A detected expression occurrence within a subtitle's token list;
+/// indices are inclusive token positions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExpressionSpanDto {
+    pub start_index: usize,
+    pub end_index: usize,
+    pub display_form: String,
+}
+
+/// A learned expression as listed in the settings panel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExpressionDto {
+    pub id: i64,
+    pub display_form: String,
+    pub added_at: String,
+}
+
+impl From<kaeda_core::store::StoredExpression> for ExpressionDto {
+    fn from(expression: kaeda_core::store::StoredExpression) -> Self {
+        Self {
+            id: expression.id,
+            display_form: expression.display_form,
+            added_at: expression.added_at,
+        }
+    }
+}
+
 impl From<Deck> for DeckDto {
     fn from(deck: Deck) -> Self {
         Self {

@@ -20,7 +20,10 @@ mod dto;
 mod error;
 mod translation;
 mod video_server;
-use dto::{CardDto, DeckDto, SubtitleDto, SubtitleSearchResultDto, TokenDto};
+use dto::{
+    CardDto, DeckDto, ExpressionDto, ExpressionSpanDto, SubtitleDto, SubtitleSearchResultDto,
+    TokenDto,
+};
 use error::AppError;
 use translation::{AppSettings, TranslationProvider, TranslationSettings};
 
@@ -191,10 +194,15 @@ struct MiningSessionInner {
 }
 
 impl MiningSessionInner {
-    /// Returns `(surface_text, dictionary_form)` for an inclusive token
-    /// range of the current subtitle; out-of-bounds or `start > end` is
-    /// rejected with [`AppError::invalid_token_range`].
-    fn expression_parts(&self, start: usize, end: usize) -> Result<(String, String), AppError> {
+    /// Validates an inclusive token range of the current subtitle and
+    /// returns the subtitle line plus owned `core` tokens for the range;
+    /// out-of-bounds or `start > end` is rejected with
+    /// [`AppError::invalid_token_range`].
+    fn range_tokens(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Result<(&str, Vec<kaeda_core::tokenizer::Token>), AppError> {
         let (entry, token_dtos) = self
             .subtitles
             .get(self.current_index)
@@ -203,12 +211,16 @@ impl MiningSessionInner {
         if start > end || end >= token_dtos.len() {
             return Err(AppError::invalid_token_range(start, end, token_dtos.len()));
         }
+        let tokens = token_dtos[start..=end].iter().map(Into::into).collect();
+        Ok((entry.text.as_str(), tokens))
+    }
 
-        let line = entry.text.as_str();
-        let tokens: Vec<kaeda_core::tokenizer::Token> =
-            token_dtos[start..=end].iter().map(Into::into).collect();
+    /// Returns `(surface_text, dictionary_form)` for an inclusive token
+    /// range of the current subtitle.
+    fn expression_parts(&self, start: usize, end: usize) -> Result<(String, String), AppError> {
+        let (line, tokens) = self.range_tokens(start, end)?;
         let (Some(first), Some(last)) = (tokens.first(), tokens.last()) else {
-            return Err(AppError::invalid_token_range(start, end, token_dtos.len()));
+            return Err(AppError::invalid_token_range(start, end, tokens.len()));
         };
         let surface_text = line
             .get(first.byte_start..last.byte_end)
@@ -216,6 +228,20 @@ impl MiningSessionInner {
             .to_string();
         let dictionary_form = kaeda_core::expression::dictionary_form(line, &tokens);
         Ok((surface_text, dictionary_form))
+    }
+
+    /// Returns the lexicon entry parts `(lemma_seq, display_form)` for an
+    /// inclusive token range of the current subtitle (PRD §5.3).
+    fn expression_lemma_entry(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Result<(Vec<String>, String), AppError> {
+        let (line, tokens) = self.range_tokens(start, end)?;
+        Ok((
+            kaeda_core::expression::lemma_sequence(&tokens),
+            kaeda_core::expression::dictionary_form(line, &tokens),
+        ))
     }
 }
 
@@ -462,6 +488,62 @@ impl MiningSessionState {
             let _ = card_store.save_card(&saved);
         }
         Ok(CardDto::from(saved))
+    }
+
+    /// Card save plus the Phase-2 learning loop (PRD §5.3): when
+    /// `token_range` spans more than one token, the range's lemma sequence
+    /// and dictionary form are also recorded in the `lexicon` store.
+    /// Returns the saved card and whether the lexicon was written to (so
+    /// the caller can notify the frontend to re-detect).
+    pub fn save_card_learning(
+        &self,
+        deck_id: DeckId,
+        target: String,
+        explanation: String,
+        token_range: Option<(usize, usize)>,
+        lexicon: &Store,
+    ) -> Result<(CardDto, bool), String> {
+        let card = self.save_card_range(deck_id, target, explanation, token_range)?;
+        let mut learned = false;
+        if let Some((start, end)) = token_range
+            && end > start
+        {
+            let (lemma_seq, display_form) = {
+                let inner = self.inner.lock().map_err(|e| e.to_string())?;
+                inner
+                    .expression_lemma_entry(start, end)
+                    .map_err(|e| e.message)?
+            };
+            lexicon
+                .add_expression(&lemma_seq, &display_form)
+                .map_err(|e| e.to_string())?;
+            learned = true;
+        }
+        Ok((card, learned))
+    }
+
+    /// Detects lexicon expressions in the given subtitle's precomputed
+    /// tokens. The lexicon is passed in by the caller so detection always
+    /// runs against the current (live) state (PRD §5.5).
+    pub fn expression_spans(
+        &self,
+        subtitle_index: usize,
+        lexicon: &[kaeda_core::expression::ExpressionEntry],
+    ) -> Result<Vec<ExpressionSpanDto>, String> {
+        let inner = self.inner.lock().map_err(|e| e.to_string())?;
+        let token_dtos = inner
+            .subtitle_tokens
+            .get(subtitle_index)
+            .ok_or_else(|| format!("subtitle index {subtitle_index} out of range"))?;
+        let tokens: Vec<kaeda_core::tokenizer::Token> = token_dtos.iter().map(Into::into).collect();
+        Ok(kaeda_core::expression::detect_expressions(&tokens, lexicon)
+            .into_iter()
+            .map(|span| ExpressionSpanDto {
+                start_index: span.start,
+                end_index: span.end,
+                display_form: span.display_form,
+            })
+            .collect())
     }
 
     pub fn session_cards(&self) -> Result<Vec<CardDto>, String> {
@@ -736,12 +818,58 @@ fn set_current_index(
 fn save_card(
     state: tauri::State<'_, MiningSessionState>,
     deck_state: tauri::State<'_, DeckState>,
+    app_handle: tauri::AppHandle,
     target: String,
     explanation: String,
     token_range: Option<(usize, usize)>,
 ) -> Result<CardDto, String> {
-    let active_deck_id = deck_state.active_deck_id()?;
-    state.save_card_range(active_deck_id, target, explanation, token_range)
+    let (card, learned) = {
+        let deck_inner = deck_state.inner.lock().map_err(|e| e.to_string())?;
+        state.save_card_learning(
+            deck_inner.active_deck_id,
+            target,
+            explanation,
+            token_range,
+            &deck_inner.store,
+        )?
+    };
+    if learned && let Err(e) = app_handle.emit("expressions-changed", ()) {
+        warn!("failed to emit expressions-changed: {e}");
+    }
+    Ok(card)
+}
+
+#[tauri::command]
+fn list_expressions(
+    deck_state: tauri::State<'_, DeckState>,
+) -> Result<Vec<ExpressionDto>, AppError> {
+    deck_state.list_expressions()
+}
+
+#[tauri::command]
+fn delete_expression(
+    deck_state: tauri::State<'_, DeckState>,
+    app_handle: tauri::AppHandle,
+    id: i64,
+) -> Result<(), AppError> {
+    deck_state.delete_expression(id)?;
+    if let Err(e) = app_handle.emit("expressions-changed", ()) {
+        warn!("failed to emit expressions-changed: {e}");
+    }
+    Ok(())
+}
+
+/// Detected expression spans for one subtitle, computed at query time
+/// against the current lexicon so newly mined expressions show up without
+/// a session re-init (PRD §5.5).
+#[tauri::command]
+fn get_expression_spans(
+    state: tauri::State<'_, MiningSessionState>,
+    deck_state: tauri::State<'_, DeckState>,
+    subtitle_index: usize,
+) -> Result<Vec<ExpressionSpanDto>, String> {
+    let lexicon = deck_state.expression_entries().map_err(|e| e.message)?;
+    state.expression_spans(subtitle_index, &lexicon)
 }
 
 #[tauri::command]
@@ -1137,6 +1265,38 @@ impl DeckState {
         Ok(DeckDto::from(deck))
     }
 
+    /// The current expression lexicon in detection form (PRD §5.5).
+    pub fn expression_entries(
+        &self,
+    ) -> Result<Vec<kaeda_core::expression::ExpressionEntry>, AppError> {
+        let inner = self.lock()?;
+        let stored = inner
+            .store
+            .list_expressions()
+            .map_err(|e| AppError::session_error(e.to_string()))?;
+        Ok(stored.iter().map(|e| e.to_entry()).collect())
+    }
+
+    /// Learned expressions as settings-panel DTOs (PRD §5.7).
+    pub fn list_expressions(&self) -> Result<Vec<ExpressionDto>, AppError> {
+        let inner = self.lock()?;
+        let stored = inner
+            .store
+            .list_expressions()
+            .map_err(|e| AppError::session_error(e.to_string()))?;
+        Ok(stored.into_iter().map(ExpressionDto::from).collect())
+    }
+
+    pub fn delete_expression(&self, id: i64) -> Result<(), AppError> {
+        let inner = self.lock()?;
+        inner.store.delete_expression(id).map_err(|e| match e {
+            kaeda_core::subtitle::CoreError::ExpressionNotFound(id) => {
+                AppError::expression_not_found(id)
+            }
+            other => AppError::session_error(other.to_string()),
+        })
+    }
+
     pub fn rename_deck(&self, deck_id: DeckId, new_name: &str) -> Result<DeckDto, AppError> {
         let inner = self.lock()?;
         let deck = deck::rename_deck(&inner.store, deck_id, new_name)?;
@@ -1278,6 +1438,9 @@ pub fn run() {
             get_video_path,
             get_video_server_port,
             search_subtitles,
+            get_expression_spans,
+            list_expressions,
+            delete_expression,
             copy_translation_span,
             translate_current_span,
             get_translation_settings,
@@ -1651,6 +1814,129 @@ mod tests {
             .save_card_range(DeckId(1), "안녕".into(), "Hello".into(), None)
             .unwrap();
         assert!(card.tags.is_empty());
+    }
+
+    #[test]
+    fn saving_expression_card_adds_lexicon_entry() {
+        let state = MiningSessionState::new();
+        state
+            .start_session(
+                &fixture_path("sample.srt"),
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+        let lexicon = Store::in_memory().unwrap();
+        let token_count = state.subtitles().unwrap()[0].tokens.len();
+        assert!(token_count > 1, "fixture line should tokenize to >1 token");
+        let range = Some((0, token_count - 1));
+
+        let (card, learned) = state
+            .save_card_learning(DeckId(1), "ignored".into(), "e".into(), range, &lexicon)
+            .unwrap();
+        assert!(learned);
+        assert_eq!(card.tags, vec!["expression".to_string()]);
+
+        let entries = lexicon.list_expressions().unwrap();
+        assert_eq!(entries.len(), 1);
+        let (_, dictionary_form) = state.expression_range(0, token_count - 1).unwrap();
+        assert_eq!(entries[0].display_form, dictionary_form);
+
+        // Saving the same expression again stays idempotent.
+        state
+            .save_card_learning(DeckId(1), "ignored".into(), "e".into(), range, &lexicon)
+            .unwrap();
+        assert_eq!(lexicon.list_expressions().unwrap().len(), 1);
+
+        // Single-token and rangeless saves do not touch the lexicon.
+        let (_, learned) = state
+            .save_card_learning(
+                DeckId(1),
+                "안녕".into(),
+                "Hello".into(),
+                Some((0, 0)),
+                &lexicon,
+            )
+            .unwrap();
+        assert!(!learned);
+        let (_, learned) = state
+            .save_card_learning(DeckId(1), "안녕".into(), "Hello".into(), None, &lexicon)
+            .unwrap();
+        assert!(!learned);
+        assert_eq!(lexicon.list_expressions().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn expression_spans_reflect_live_lexicon() {
+        let state = MiningSessionState::new();
+        state
+            .start_session(
+                &fixture_path("sample.srt"),
+                "deck".into(),
+                "file".into(),
+                KnownLinesStore::in_memory().unwrap(),
+                "/videos/test.mp4".into(),
+            )
+            .unwrap();
+        let lexicon = Store::in_memory().unwrap();
+
+        let entries: Vec<_> = lexicon
+            .list_expressions()
+            .unwrap()
+            .iter()
+            .map(|e| e.to_entry())
+            .collect();
+        let spans = state.expression_spans(0, &entries).unwrap();
+        assert!(spans.is_empty(), "no lexicon, no spans");
+
+        // Learn the expression covering the first two tokens — no session
+        // re-init between the two span computations.
+        state
+            .save_card_learning(DeckId(1), "x".into(), "e".into(), Some((0, 1)), &lexicon)
+            .unwrap();
+
+        let entries: Vec<_> = lexicon
+            .list_expressions()
+            .unwrap()
+            .iter()
+            .map(|e| e.to_entry())
+            .collect();
+        let spans = state.expression_spans(0, &entries).unwrap();
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].start_index, 0);
+        assert!(spans[0].end_index >= 1);
+        let (_, dictionary_form) = state.expression_range(0, 1).unwrap();
+        assert_eq!(spans[0].display_form, dictionary_form);
+
+        // Out-of-range subtitle index is a proper error, not a panic.
+        assert!(state.expression_spans(999, &entries).is_err());
+    }
+
+    #[test]
+    fn list_and_delete_expression_commands_roundtrip() {
+        let store = Store::in_memory().unwrap();
+        let deck_id = store.ensure_default_deck().unwrap();
+        store
+            .add_expression(
+                &["마음".to_string(), "에".to_string(), "들다".to_string()],
+                "마음에 들다",
+            )
+            .unwrap();
+        let deck_state = DeckState::new(store, deck_id);
+
+        let listed = deck_state.list_expressions().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].display_form, "마음에 들다");
+        assert!(!listed[0].added_at.is_empty());
+
+        deck_state.delete_expression(listed[0].id).unwrap();
+        assert!(deck_state.list_expressions().unwrap().is_empty());
+
+        // Deleting a nonexistent id is a proper AppError, not a panic.
+        let err = deck_state.delete_expression(999).unwrap_err();
+        assert_eq!(err.code, "EXPRESSION_NOT_FOUND");
     }
 
     #[test]

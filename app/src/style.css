@@ -429,6 +429,56 @@ body {
   margin: 0 1px;
 }
 
+.shortcut-note {
+  font-style: italic;
+}
+
+#right-panel-shortcuts {
+  margin-top: auto;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+}
+
+#right-panel-shortcuts .key {
+  font-size: 10px;
+  min-width: 18px;
+  height: 18px;
+  line-height: 18px;
+  margin: 0 1px;
+}
+
+/* The Q/E keys light up when they currently act on an expression group. */
+#right-panel-shortcuts .key.key-active {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--text-primary);
+}
+
+.help-group-title {
+  margin-top: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.expression-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.expression-hint .key {
+  font-size: 10px;
+  min-width: 18px;
+  height: 18px;
+  line-height: 18px;
+  margin: 0 1px;
+}
+
 #right-panel {
   width: 360px;
   min-width: 360px;
@@ -586,6 +636,64 @@ body {
 .word-token.selected {
   background: var(--accent-bg);
   border: 1px solid var(--accent-border);
+}
+
+/* Bracketed member chips: morphemes of a detected expression stay
+   individually visible but share an underline and background tint. */
+.word-token.in-expression {
+  background: var(--hover);
+  border-bottom: 2px solid var(--accent-border);
+  border-radius: 0;
+}
+
+.word-token.in-expression.expression-start {
+  border-top-left-radius: 3px;
+}
+
+.word-token.in-expression.expression-end {
+  border-top-right-radius: 3px;
+}
+
+/* Drilled-into group: dashed tie to show morphemes are addressable. */
+.word-token.in-expression.expression-expanded {
+  border-bottom-style: dashed;
+}
+
+.word-token.in-expression.selected {
+  background: var(--accent-bg);
+}
+
+.learned-expressions-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.learned-expressions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.learned-expression-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-item);
+  border-radius: 4px;
+}
+
+.learned-expression-form {
+  flex: 1;
+  font-size: 14px;
+}
+
+.learned-expression-date {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .word-token-empty {

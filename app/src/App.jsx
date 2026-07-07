@@ -32,6 +32,12 @@ export default function App() {
   const [settingsHasApiKey, setSettingsHasApiKey] = useState(false);
   // Contiguous token selection: { start, end } inclusive indices, or null.
   const [selectedRange, setSelectedRange] = useState(null);
+  // Detected expression spans for the current subtitle (live lexicon).
+  const [expressionSpans, setExpressionSpans] = useState([]);
+  // Key of the span currently drilled into (Q/E), or null.
+  const [expandedGroupKey, setExpandedGroupKey] = useState(null);
+  // Learned expressions shown in the settings panel.
+  const [learnedExpressions, setLearnedExpressions] = useState([]);
   const [explanation, setExplanation] = useState("");
   const [explanationLoading, setExplanationLoading] = useState(false);
   const [spanTranslation, setSpanTranslation] = useState("");
@@ -124,6 +130,7 @@ export default function App() {
   useEffect(() => {
     setSelectedRange(null);
     selectionAnchorRef.current = -1;
+    setExpandedGroupKey(null);
     setExplanation("");
     setExplanationLoading(false);
     setSpanTranslation("");
@@ -132,6 +139,35 @@ export default function App() {
     setSavedCard(null);
     fetchingLemmaRef.current = null;
   }, [currentIndex]);
+
+  const loadExpressionSpans = useCallback(async () => {
+    try {
+      const spans = await invoke("get_expression_spans", {
+        subtitleIndex: currentIndex,
+      });
+      setExpressionSpans(spans);
+    } catch {
+      /* no active session */
+      setExpressionSpans([]);
+    }
+  }, [currentIndex]);
+
+  useEffect(() => {
+    loadExpressionSpans();
+  }, [loadExpressionSpans, subtitles]);
+
+  // Drop a stale drill-down when its span disappears (e.g. the expression
+  // was deleted from settings).
+  useEffect(() => {
+    if (
+      expandedGroupKey &&
+      !expressionSpans.some(
+        (s) => `${s.start_index}-${s.end_index}` === expandedGroupKey,
+      )
+    ) {
+      setExpandedGroupKey(null);
+    }
+  }, [expressionSpans, expandedGroupKey]);
 
   useEffect(() => {
     const el = document.querySelector(".subtitle-item.active");
@@ -172,6 +208,17 @@ export default function App() {
       } else {
         showToast("Dictionary lookup returned no result", "warning");
       }
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  // Live re-detection (PRD §5.5): mining or deleting an expression mutates
+  // the lexicon backend-side; refresh spans (and the settings list, when
+  // open) so grouping appears/disappears without a reload.
+  const expressionsChangedRef = useRef(() => {});
+  useEffect(() => {
+    const unlisten = listen("expressions-changed", () => {
+      expressionsChangedRef.current();
     });
     return () => { unlisten.then((fn) => fn()); };
   }, []);
@@ -519,6 +566,31 @@ export default function App() {
     }, durationMs);
   }
 
+  async function loadLearnedExpressions() {
+    try {
+      const expressions = await invoke("list_expressions");
+      setLearnedExpressions(expressions);
+    } catch {
+      setLearnedExpressions([]);
+    }
+  }
+
+  async function handleDeleteExpression(id) {
+    try {
+      // The backend emits expressions-changed, which re-detects spans so
+      // grouping on the current subtitle vanishes immediately (PRD §5.7).
+      await invoke("delete_expression", { id });
+      await loadLearnedExpressions();
+      showToast("Expression removed", "success");
+    } catch (err) {
+      const msg =
+        typeof err === "object" && err !== null
+          ? err.message || String(err)
+          : String(err);
+      showToast(`Failed to delete expression: ${msg}`, "error");
+    }
+  }
+
   async function openSettings() {
     try {
       const s = await invoke("get_translation_settings");
@@ -526,6 +598,7 @@ export default function App() {
       setSettingsHasApiKey(s.has_api_key);
       setSettingsApiKey("");
       setSettingsTargetLang(s.target_lang);
+      await loadLearnedExpressions();
       setSettingsOpen(true);
     } catch (err) {
       showToast(`Failed to load settings: ${err}`, "error");
@@ -642,20 +715,96 @@ export default function App() {
     applySelectedRange({ start: index, end: index });
   }
 
+  function spanKey(span) {
+    return `${span.start_index}-${span.end_index}`;
+  }
+
+  /** Detected span containing the token at `index`, or null. */
+  function findSpanAt(index) {
+    return (
+      expressionSpans.find(
+        (s) => index >= s.start_index && index <= s.end_index,
+      ) || null
+    );
+  }
+
+  /** Select a detected span as one unit (PRD §5.6). */
+  function selectGroup(span) {
+    selectionAnchorRef.current = span.start_index;
+    applySelectedRange({ start: span.start_index, end: span.end_index });
+  }
+
+  /** Land on a token: a collapsed group underneath is selected as a whole,
+   *  otherwise the single token is selected. */
+  function landOnToken(index) {
+    const span = findSpanAt(index);
+    if (span && expandedGroupKey !== spanKey(span)) {
+      selectGroup(span);
+    } else {
+      selectSingleToken(index);
+    }
+  }
+
+  /** Drill into a group: individual morphemes become addressable. */
+  function expandGroup(span, index = null) {
+    setExpandedGroupKey(spanKey(span));
+    selectSingleToken(index != null ? index : span.start_index);
+  }
+
+  /** Collapse the drill-down back to group-as-unit selection. */
+  function collapseGroup() {
+    if (!expandedGroupKey) return;
+    const span =
+      expressionSpans.find((s) => spanKey(s) === expandedGroupKey) || null;
+    setExpandedGroupKey(null);
+    if (span) selectGroup(span);
+  }
+
   function handleTokenClick(index, shiftKey) {
     const anchor = selectionAnchorRef.current;
     if (shiftKey && selectedRange && anchor >= 0) {
+      // Manual shift-selection works everywhere, including across groups.
       applySelectedRange({
         start: Math.min(anchor, index),
         end: Math.max(anchor, index),
       });
+      return;
+    }
+    const span = findSpanAt(index);
+    if (span && expandedGroupKey !== spanKey(span)) {
+      if (
+        selectedRange &&
+        selectedRange.start === span.start_index &&
+        selectedRange.end === span.end_index
+      ) {
+        // Clicking the selected group again drills down (PRD §5.6).
+        expandGroup(span, index);
+      } else {
+        selectGroup(span);
+      }
     } else {
       selectSingleToken(index);
     }
   }
 
   navigateRef.current = navigate;
-  tokenNavRef.current = { selectedRange, subtitles, currentIndex, applySelectedRange, selectSingleToken };
+  tokenNavRef.current = {
+    selectedRange,
+    subtitles,
+    currentIndex,
+    applySelectedRange,
+    selectSingleToken,
+    landOnToken,
+    expressionSpans,
+    expandedGroupKey,
+    spanKey,
+    expandGroup,
+    collapseGroup,
+  };
+  expressionsChangedRef.current = () => {
+    loadExpressionSpans();
+    if (settingsOpen) loadLearnedExpressions();
+  };
   saveRef.current = handleSaveCard;
   markKnownRef.current = handleMarkKnown;
   replayRef.current = handleReplay;
@@ -713,6 +862,24 @@ export default function App() {
       } else if (e.key === "s" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         navigateRef.current(1);
+      } else if (e.key === "q" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        // Q drills into the selected (collapsed) group (PRD §5.6
+        // drill-down, rebound from S so W/S stay subtitle-only).
+        const ref = tokenNavRef.current;
+        const range = ref.selectedRange;
+        const span = range
+          ? ref.expressionSpans.find(
+              (s) => s.start_index === range.start && s.end_index === range.end,
+            )
+          : null;
+        if (span && ref.expandedGroupKey !== ref.spanKey(span)) {
+          ref.expandGroup(span);
+        }
+      } else if (e.key === "e" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        // E collapses an active drill-down back to group-as-unit.
+        tokenNavRef.current.collapseGroup();
       } else if ((e.key === "a" || e.key === "A") && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         const ref = tokenNavRef.current;
@@ -728,7 +895,7 @@ export default function App() {
               ref.applySelectedRange({ start: range.start - 1, end: range.end });
             }
           } else if (range.start > 0) {
-            ref.selectSingleToken(range.start - 1);
+            ref.landOnToken(range.start - 1);
           }
         }
       } else if ((e.key === "d" || e.key === "D") && !e.metaKey && !e.ctrlKey) {
@@ -743,9 +910,9 @@ export default function App() {
               ref.applySelectedRange({ start: range.start, end: range.end + 1 });
             }
           } else if (!range) {
-            ref.selectSingleToken(0);
+            ref.landOnToken(0);
           } else if (range.end < tokens.length - 1) {
-            ref.selectSingleToken(range.end + 1);
+            ref.landOnToken(range.end + 1);
           }
         }
       } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -800,6 +967,23 @@ export default function App() {
   }, []);
 
   const current = subtitles[currentIndex];
+
+  // Render-time expression context (PRD §5.6): a detected group is first
+  // selected as one highlighted unit; word-by-word access only via drill-down.
+  const selectedExpressionSpan =
+    selectedRange
+      ? expressionSpans.find(
+          (s) =>
+            s.start_index === selectedRange.start &&
+            s.end_index === selectedRange.end,
+        ) || null
+      : null;
+  const expandedExpressionSpan = expandedGroupKey
+    ? expressionSpans.find((s) => spanKey(s) === expandedGroupKey) || null
+    : null;
+  const canExpandExpression =
+    selectedExpressionSpan &&
+    expandedGroupKey !== spanKey(selectedExpressionSpan);
 
   return (
     <div id="app">
@@ -880,11 +1064,10 @@ export default function App() {
         </div>
         {current && (
           <div id="sidebar-shortcuts">
-            <span className="key">W</span><span className="key">S</span> subs
-            <span className="key">A</span><span className="key">D</span> word
+            <span className="key">W</span><span className="key">S</span> prev / next line
             <span className="key">R</span> replay
             <span className="key">K</span> known
-            <span className="key">&#8984;</span>+<span className="key">Enter</span> save
+            <span className="shortcut-note">click a line to jump</span>
           </div>
         )}
       </aside>
@@ -897,12 +1080,16 @@ export default function App() {
               <div id="current-text">Start a session to begin mining</div>
             </div>
             <div id="help-text">
+              <p className="help-group-title">Subtitles &mdash; left panel</p>
               <p><span className="key">W</span> <span className="key">S</span> Navigate subtitles</p>
-              <p><span className="key">A</span> <span className="key">D</span> Select token</p>
               <p><span className="key">R</span> Replay current line</p>
-              <p><span className="key">&#8984;</span>+<span className="key">Enter</span> Save card</p>
               <p><span className="key">K</span> Mark line as known</p>
               <p>Click a subtitle to select it</p>
+              <p className="help-group-title">Words &amp; card &mdash; right panel</p>
+              <p><span className="key">A</span> <span className="key">D</span> Move word selection</p>
+              <p><span className="key">Shift</span>+<span className="key">A</span>/<span className="key">D</span> Shrink / grow selection</p>
+              <p><span className="key">Q</span> Open expression &middot; <span className="key">E</span> close it</p>
+              <p><span className="key">&#8984;</span>+<span className="key">Enter</span> Save card</p>
             </div>
           </>
         )}
@@ -1029,29 +1216,57 @@ export default function App() {
                 <label>Target Word</label>
                 <div className="word-tokens">
                   {current.tokens && current.tokens.length > 0 ? (
-                    current.tokens.map((t, i) => (
-                      <span
-                        key={i}
-                        className={
-                          "word-token" +
-                          (selectedRange &&
-                          i >= selectedRange.start &&
-                          i <= selectedRange.end
-                            ? " selected"
-                            : "")
-                        }
-                        onClick={(e) => handleTokenClick(i, e.shiftKey)}
-                        title={`${t.lemma} (${t.pos})`}
-                      >
-                        {t.surface}
-                      </span>
-                    ))
+                    current.tokens.map((t, i) => {
+                      const span = findSpanAt(i);
+                      const expanded = span && expandedGroupKey === spanKey(span);
+                      const className =
+                        "word-token" +
+                        (selectedRange &&
+                        i >= selectedRange.start &&
+                        i <= selectedRange.end
+                          ? " selected"
+                          : "") +
+                        (span ? " in-expression" : "") +
+                        (expanded ? " expression-expanded" : "") +
+                        (span && i === span.start_index
+                          ? " expression-start"
+                          : "") +
+                        (span && i === span.end_index ? " expression-end" : "");
+                      return (
+                        <span
+                          key={i}
+                          className={className}
+                          onClick={(e) => handleTokenClick(i, e.shiftKey)}
+                          title={
+                            span && !expanded
+                              ? span.display_form
+                              : `${t.lemma} (${t.pos})`
+                          }
+                        >
+                          {t.surface}
+                        </span>
+                      );
+                    })
                   ) : (
                     <span className="word-token-empty">
                       No tokens available
                     </span>
                   )}
                 </div>
+                {canExpandExpression ? (
+                  <div className="expression-hint">
+                    Expression: {selectedExpressionSpan.display_form} &mdash;
+                    press <span className="key">Q</span> (or click again) to
+                    inspect word by word
+                  </div>
+                ) : expandedExpressionSpan ? (
+                  <div className="expression-hint">
+                    Inside expression &mdash; <span className="key">A</span>
+                    <span className="key">D</span> move word by word &middot;{" "}
+                    <span className="key">E</span> returns to the whole
+                    expression
+                  </div>
+                ) : null}
               </div>
 
               <div className="card-field">
@@ -1119,6 +1334,14 @@ export default function App() {
           <button className="manage-decks-btn" onClick={() => setShowDeckManager(true)}>
             Manage decks…
           </button>
+          <div id="right-panel-shortcuts">
+            <span className="key">A</span><span className="key">D</span> word
+            <span className="key">&#8679;A</span><span className="key">&#8679;D</span> range
+            <span className="shortcut-note">&#8679;click span</span>
+            <span className={"key" + (canExpandExpression ? " key-active" : "")}>Q</span> open expr
+            <span className={"key" + (expandedExpressionSpan ? " key-active" : "")}>E</span> close
+            <span className="key">&#8984;</span>+<span className="key">Enter</span> save
+          </div>
         </aside>
       )}
 
@@ -1258,6 +1481,36 @@ export default function App() {
                 </div>
               </>
             )}
+
+            <div className="dialog-field">
+              <label>Learned expressions</label>
+              {learnedExpressions.length === 0 ? (
+                <div className="learned-expressions-empty">
+                  No learned expressions yet. Mine a multi-token selection to
+                  add one.
+                </div>
+              ) : (
+                <div className="learned-expressions-list">
+                  {learnedExpressions.map((expr) => (
+                    <div key={expr.id} className="learned-expression-row">
+                      <span className="learned-expression-form">
+                        {expr.display_form}
+                      </span>
+                      <span className="learned-expression-date">
+                        {expr.added_at.slice(0, 10)}
+                      </span>
+                      <button
+                        className="deck-manager-icon-btn deck-manager-icon-delete"
+                        onClick={() => handleDeleteExpression(expr.id)}
+                        title="Delete expression"
+                      >
+                        &#10005;
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div className="dialog-actions">
               <button className="dialog-btn dialog-btn-save" onClick={handleSaveSettings}>
