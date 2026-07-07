@@ -72,6 +72,70 @@ fn join_surfaces(line: &str, tokens: &[Token]) -> String {
     out
 }
 
+/// Detects lexicon expressions in a token list via contiguous
+/// lemma-sequence matching (PRD §5.5).
+///
+/// Scans left to right; at each index the longest matching entry wins and
+/// its tokens are consumed, so spans never overlap and are returned sorted
+/// by position. When the last lemma-matched token is a verb/adjective
+/// (`V*`), the span extends over the ending (`E*`) tokens attached to it,
+/// so a match on 마음|에|들다 in 마음에 들었어요 covers 었/어요 too —
+/// mirroring how [`lemma_sequence`] folds endings when the entry is built.
+pub fn detect_expressions(tokens: &[Token], lexicon: &[ExpressionEntry]) -> Vec<ExpressionSpan> {
+    let mut entries: Vec<&ExpressionEntry> = lexicon
+        .iter()
+        .filter(|entry| !entry.lemma_seq.is_empty())
+        .collect();
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.lemma_seq.len()));
+
+    let mut spans = Vec::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        let matched = entries.iter().find_map(|entry| {
+            let candidate = tokens.get(index..index + entry.lemma_seq.len())?;
+            let lemmas_match = entry
+                .lemma_seq
+                .iter()
+                .zip(candidate)
+                .all(|(lemma, token)| token.lemma.as_str() == lemma);
+            lemmas_match.then(|| {
+                let last = index + entry.lemma_seq.len() - 1;
+                let end = if tokens[last].pos.starts_with('V') {
+                    trailing_endings_end(tokens, last)
+                } else {
+                    last
+                };
+                (end, entry.display_form.clone())
+            })
+        });
+        match matched {
+            Some((end, display_form)) => {
+                spans.push(ExpressionSpan {
+                    start: index,
+                    end,
+                    display_form,
+                });
+                index = end + 1;
+            }
+            None => index += 1,
+        }
+    }
+    spans
+}
+
+/// Index of the last consecutive ending (`E*`) token following `index`,
+/// or `index` itself when none follow.
+fn trailing_endings_end(tokens: &[Token], index: usize) -> usize {
+    let mut end = index;
+    while tokens
+        .get(end + 1)
+        .is_some_and(|token| token.pos.starts_with('E'))
+    {
+        end += 1;
+    }
+    end
+}
+
 /// Returns each token's lemma in order, folding trailing endings into the
 /// final verb/adjective lemma the same way as [`dictionary_form`].
 pub fn lemma_sequence(tokens: &[Token]) -> Vec<String> {
@@ -159,5 +223,106 @@ mod tests {
     fn lemma_sequence_returns_each_token_lemma_in_order() {
         let tokens = tokens_for("마음에 들어");
         assert_eq!(lemma_sequence(&tokens), vec!["마음", "에", "들다"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // detect_expressions
+    // -----------------------------------------------------------------------
+
+    fn entry(lemmas: &[&str], display_form: &str) -> ExpressionEntry {
+        ExpressionEntry {
+            lemma_seq: lemmas.iter().map(|l| l.to_string()).collect(),
+            display_form: display_form.to_string(),
+        }
+    }
+
+    #[test]
+    fn detects_expression_in_conjugated_form() {
+        let tokens = tokens_for("정말 마음에 들었어요");
+        let lexicon = vec![entry(&["마음", "에", "들다"], "마음에 들다")];
+
+        let spans = detect_expressions(&tokens, &lexicon);
+
+        assert_eq!(spans.len(), 1);
+        let span = &spans[0];
+        assert_eq!(span.display_form, "마음에 들다");
+        let start_of_maeum = tokens
+            .iter()
+            .position(|t| t.surface.as_str() == "마음")
+            .expect("expected a 마음 token");
+        assert_eq!(span.start, start_of_maeum, "span must start at 마음");
+        assert_eq!(
+            span.end,
+            tokens.len() - 1,
+            "span must cover the ending-bearing tokens of 들었어요"
+        );
+    }
+
+    #[test]
+    fn no_match_when_lemma_sequence_broken() {
+        let tokens = tokens_for("마음에 정말 들어");
+        let lexicon = vec![entry(&["마음", "에", "들다"], "마음에 들다")];
+        assert!(detect_expressions(&tokens, &lexicon).is_empty());
+    }
+
+    #[test]
+    fn leftmost_longest_wins_on_overlap() {
+        let tokens = tokens_for("마음에 들어");
+        // Shorter entry listed first: length, not lexicon order, must win.
+        let lexicon = vec![
+            entry(&["에", "들다"], "에 들다"),
+            entry(&["마음", "에", "들다"], "마음에 들다"),
+        ];
+
+        let spans = detect_expressions(&tokens, &lexicon);
+
+        assert_eq!(spans.len(), 1, "matched tokens must be consumed");
+        assert_eq!(spans[0].start, 0);
+        assert_eq!(spans[0].display_form, "마음에 들다");
+    }
+
+    #[test]
+    fn multiple_disjoint_matches_all_returned() {
+        let line = "마음에 들어 어쩔 수 없어";
+        let tokens = tokens_for(line);
+        let lexicon = vec![
+            entry(&["마음", "에", "들다"], "마음에 들다"),
+            ExpressionEntry {
+                lemma_seq: lemma_sequence(&tokens_for("어쩔 수 없어")),
+                display_form: "어쩔 수 없다".to_string(),
+            },
+        ];
+
+        let spans = detect_expressions(&tokens, &lexicon);
+
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].display_form, "마음에 들다");
+        assert_eq!(spans[1].display_form, "어쩔 수 없다");
+        assert!(
+            spans[0].end < spans[1].start,
+            "spans must be disjoint and sorted by position"
+        );
+    }
+
+    #[test]
+    fn empty_lexicon_returns_no_spans() {
+        let tokens = tokens_for("마음에 들어");
+        assert!(detect_expressions(&tokens, &[]).is_empty());
+    }
+
+    #[test]
+    fn match_at_line_start_and_end() {
+        let tokens = tokens_for("마음에 들어");
+        let lexicon = vec![entry(&["마음", "에", "들다"], "마음에 들다")];
+
+        let spans = detect_expressions(&tokens, &lexicon);
+
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].start, 0, "flush against the line start");
+        assert_eq!(
+            spans[0].end,
+            tokens.len() - 1,
+            "flush against the line end (endings included)"
+        );
     }
 }

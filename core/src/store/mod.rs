@@ -7,6 +7,7 @@ use chrono::Utc;
 use rusqlite::Connection;
 
 use crate::deck::{Deck, DeckId};
+use crate::expression::ExpressionEntry;
 use crate::session::Card;
 use crate::subtitle::CoreError;
 
@@ -23,6 +24,33 @@ pub struct Stats {
     pub added_today: usize,
     pub total_known: usize,
 }
+
+/// A learned expression as persisted in the `expressions` table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredExpression {
+    pub id: i64,
+    /// Match key: each member token's lemma, in order.
+    pub lemma_seq: Vec<String>,
+    /// Canonical dictionary form shown to the user (e.g. 마음에 들다).
+    pub display_form: String,
+    /// RFC 3339 timestamp of when the expression was learned.
+    pub added_at: String,
+}
+
+impl StoredExpression {
+    /// The detection-facing view of this row (see
+    /// [`crate::expression::detect_expressions`]).
+    pub fn to_entry(&self) -> ExpressionEntry {
+        ExpressionEntry {
+            lemma_seq: self.lemma_seq.clone(),
+            display_form: self.display_form.clone(),
+        }
+    }
+}
+
+/// Separator used to persist a lemma sequence as a single TEXT column.
+/// Lemmas cannot contain `|`, so the join is unambiguous.
+const LEMMA_SEQ_SEPARATOR: &str = "|";
 
 /// Persistent store for mined vocabulary, known words, card decks and
 /// session cards.
@@ -70,6 +98,12 @@ impl Store {
                 tags            TEXT NOT NULL DEFAULT '',
                 file_id         TEXT NOT NULL,
                 subtitle_id     INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS expressions (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                lemma_seq    TEXT NOT NULL UNIQUE,
+                display_form TEXT NOT NULL,
+                added_at     TEXT NOT NULL
             );",
         )?;
         self.migrate_card_decks()?;
@@ -325,6 +359,66 @@ impl Store {
             .open(known_path)
             .map_err(CoreError::WordList)?;
         writeln!(file, "{lemma}").map_err(CoreError::WordList)?;
+        Ok(())
+    }
+
+    // -- learned expressions ------------------------------------------------
+
+    /// Add an expression to the personal lexicon. Idempotent: re-adding an
+    /// existing lemma sequence is a no-op. An empty lemma sequence is
+    /// ignored (nothing to match against).
+    pub fn add_expression(
+        &self,
+        lemma_seq: &[String],
+        display_form: &str,
+    ) -> Result<(), CoreError> {
+        if lemma_seq.is_empty() {
+            return Ok(());
+        }
+        self.conn.execute(
+            "INSERT OR IGNORE INTO expressions (lemma_seq, display_form, added_at)
+             VALUES (?1, ?2, ?3)",
+            rusqlite::params![
+                lemma_seq.join(LEMMA_SEQ_SEPARATOR),
+                display_form,
+                Utc::now().to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_expressions(&self) -> Result<Vec<StoredExpression>, CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, lemma_seq, display_form, added_at FROM expressions ORDER BY id")?;
+        let expressions = stmt
+            .query_map([], |row| {
+                let id: i64 = row.get(0)?;
+                let lemma_seq: String = row.get(1)?;
+                let display_form: String = row.get(2)?;
+                let added_at: String = row.get(3)?;
+                Ok(StoredExpression {
+                    id,
+                    lemma_seq: lemma_seq
+                        .split(LEMMA_SEQ_SEPARATOR)
+                        .map(|s| s.to_string())
+                        .collect(),
+                    display_form,
+                    added_at,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(expressions)
+    }
+
+    pub fn delete_expression(&self, id: i64) -> Result<(), CoreError> {
+        let affected = self.conn.execute(
+            "DELETE FROM expressions WHERE id = ?1",
+            rusqlite::params![id],
+        )?;
+        if affected == 0 {
+            return Err(CoreError::ExpressionNotFound(id));
+        }
         Ok(())
     }
 
@@ -657,6 +751,89 @@ mod tests {
         {
             let store = Store::open(&path).unwrap();
             assert_eq!(store.list_known_words().unwrap(), vec!["먹다"]);
+        }
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    // -----------------------------------------------------------------------
+    // Expressions lexicon
+    // -----------------------------------------------------------------------
+
+    fn sample_lemma_seq() -> Vec<String> {
+        vec!["마음".to_string(), "에".to_string(), "들다".to_string()]
+    }
+
+    #[test]
+    fn add_and_list_expressions_roundtrip() {
+        let store = test_store();
+        store
+            .add_expression(&sample_lemma_seq(), "마음에 들다")
+            .unwrap();
+
+        let entries = store.list_expressions().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].lemma_seq, sample_lemma_seq());
+        assert_eq!(entries[0].display_form, "마음에 들다");
+        assert!(!entries[0].added_at.is_empty());
+    }
+
+    #[test]
+    fn add_expression_is_idempotent() {
+        let store = test_store();
+        store
+            .add_expression(&sample_lemma_seq(), "마음에 들다")
+            .unwrap();
+        store
+            .add_expression(&sample_lemma_seq(), "마음에 들다")
+            .unwrap();
+
+        let entries = store.list_expressions().unwrap();
+        assert_eq!(entries.len(), 1, "duplicate insert must not add a row");
+    }
+
+    #[test]
+    fn delete_expression_removes_entry() {
+        let store = test_store();
+        store
+            .add_expression(&sample_lemma_seq(), "마음에 들다")
+            .unwrap();
+        let id = store.list_expressions().unwrap()[0].id;
+
+        store.delete_expression(id).unwrap();
+
+        assert!(store.list_expressions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn delete_expression_missing_id_errors() {
+        let store = test_store();
+        let result = store.delete_expression(999);
+        assert!(matches!(
+            result.unwrap_err(),
+            CoreError::ExpressionNotFound(999)
+        ));
+    }
+
+    #[test]
+    fn expressions_persist_across_reopen() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_expressions_persist.db");
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let store = Store::open(&path).unwrap();
+            store
+                .add_expression(&sample_lemma_seq(), "마음에 들다")
+                .unwrap();
+        }
+
+        {
+            let store = Store::open(&path).unwrap();
+            let entries = store.list_expressions().unwrap();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].lemma_seq, sample_lemma_seq());
+            assert_eq!(entries[0].display_form, "마음에 들다");
         }
 
         std::fs::remove_file(&path).unwrap();

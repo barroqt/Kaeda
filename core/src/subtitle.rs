@@ -32,6 +32,8 @@ pub enum CoreError {
     CardNotFound(u32),
     #[error("deck with id {0} not found")]
     DeckNotFound(DeckId),
+    #[error("expression with id {0} not found")]
+    ExpressionNotFound(i64),
 }
 
 #[derive(Debug, Clone)]
