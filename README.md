@@ -6,6 +6,8 @@ A tool that helps language learner save their content into flashcards.
   Anki-compatible TSV export.
 - **srt-miner** (CLI / TUI) — parse `.srt` subtitle files from a terminal, tokenize Korean text, look up definitions, and build an SRS deck.
 
+Landing: https://barroqt.github.io/Kaeda/
+
 ## Kaeda desktop app
 
 ### Prerequisites
